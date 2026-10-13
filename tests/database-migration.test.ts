@@ -103,6 +103,38 @@ describe("Supabase migration safety", () => {
     expect(fnb).toContain("Akhiri + bayar gabungan");
   });
 
+  it("makes checkout totals authoritative and payment requests idempotent", () => {
+    const sql = readMigration("202610140009_checkout_integrity_and_idempotency.sql");
+    expect(sql).toContain("create table if not exists public.payment_idempotency_requests");
+    expect(sql).toContain("request_fingerprint text not null");
+    expect(sql).toContain("create or replace function public.preview_rental_checkout");
+    expect(sql).toContain("public.calculate_session_rental_total(s.id,pg_catalog.now())");
+    expect(sql).toContain("p_idempotency_key uuid default null");
+    expect(sql).toContain("IDEMPOTENCY_KEY_REUSED");
+    expect(sql).toContain("return existing_response");
+    expect(sql).toContain("case when tender_recorded then order_applied else received end");
+    expect(sql).toContain("received_amount >= amount");
+    expect(sql).toContain("set search_path = ''");
+    expect(sql).toContain("grant execute on function public.preview_rental_checkout(uuid) to authenticated");
+    expect(sql).toContain("revoke all on table public.payment_idempotency_requests from public, anon, authenticated");
+  });
+
+  it("uses combined invoice accounting for history and reports", () => {
+    const api = readFileSync(join(process.cwd(), "src", "lib", "rentalApi.ts"), "utf8");
+    const ops = readFileSync(join(process.cwd(), "src", "OperationalPages.tsx"), "utf8");
+    const app = readFileSync(join(process.cwd(), "src", "App.tsx"), "utf8");
+    expect(api).toContain("export async function loadSessionCheckoutPreview");
+    expect(api).toContain(".in('session_id',sessionIds)");
+    expect(api).toContain("invoice_id:String(p.session_id)");
+    expect(api).toContain("export async function loadStandaloneFnbOrders");
+    expect(api).toContain("p_idempotency_key:input.idempotencyKey??null");
+    expect(ops).toContain("Bayar sisa");
+    expect(ops).toContain("loadStandaloneFnbOrders");
+    expect(ops).toContain("Piutang tersisa");
+    expect(app).toContain("loadSessionCheckoutPreview(unit.sessionId)");
+    expect(app).toContain("checkoutPreview?.outstanding");
+  });
+
   it("guards reservation unit ownership at both policy and trigger level", () => {
     const sql = readMigration("202610130006_database_hardening_idempotency.sql");
     expect(sql).toContain("RESERVATION_UNIT_BUSINESS_MISMATCH");

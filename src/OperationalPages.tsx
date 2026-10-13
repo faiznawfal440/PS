@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import {
   deactivateManagedRate, deactivateManagedUnit, formatIDR, inviteManagedMember,
-  loadAuditEntries, loadBusinessSettings, loadHistorySessions, loadManagedMembers, settleSessionPayment,
+  loadAuditEntries, loadBusinessSettings, loadHistorySessions, loadManagedMembers, settleSessionPayment, createPaymentRequestKey, loadStandaloneFnbOrders, subscribeToRentalChanges,
   loadManagedRates, loadManagedUnits, loadRevenuePayments, resendManagedInvite, saveBusinessSettings, saveManagedRate,
   saveManagedUnit, updateManagedMember, type AuditRecord, type BusinessSettings, type PaymentMethod,
   type HistoryRecord, type ManagedRate, type ManagedUnit, type RevenuePayment,
@@ -58,105 +58,176 @@ const prettyTime = (value: string | null) => value ? new Date(value).toLocaleStr
 const durationText = (mins: number) => Math.floor(mins / 60) > 0 ? Math.floor(mins / 60) + "j " + (mins % 60) + "m" : (mins % 60) + "m";
 
 export function HistoryPageV2({onReceipt,paymentMethods}:{onReceipt:(sessionId:string)=>void;paymentMethods:PaymentMethod[]}) {
-  const [rows, setRows] = useState<HistoryRecord[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
-  const [search, setSearch] = useState("");
-  const [status, setStatus] = useState("Semua");
-  const [page, setPage] = useState(1);
+  const [rows,setRows]=useState<HistoryRecord[]>([]);
+  const [loading,setLoading]=useState(true);
+  const [error,setError]=useState("");
+  const [notice,setNotice]=useState("");
+  const [search,setSearch]=useState("");
+  const [status,setStatus]=useState("Semua");
+  const [paymentStatus,setPaymentStatus]=useState("Semua");
+  const [methodFilter,setMethodFilter]=useState("Semua");
+  const [fromDate,setFromDate]=useState("");
+  const [toDate,setToDate]=useState("");
+  const [page,setPage]=useState(1);
   const [settling,setSettling]=useState<HistoryRecord|null>(null);
   const [settleMethod,setSettleMethod]=useState<PaymentMethod>(paymentMethods[0]||"cash");
   const [settleReceived,setSettleReceived]=useState("");
   const [settleBusy,setSettleBusy]=useState(false);
+  const [settleRequestKey,setSettleRequestKey]=useState(createPaymentRequestKey);
   useEffect(()=>{if(paymentMethods.length>0&&!paymentMethods.includes(settleMethod))setSettleMethod(paymentMethods[0]);},[paymentMethods,settleMethod]);
-  useEffect(() => {
-    let alive = true;
-    loadHistorySessions().then(data => { if (alive) setRows(data); })
-      .catch(e => { if (alive) setError(e instanceof Error ? e.message : "Riwayat gagal dimuat."); })
-      .finally(() => { if (alive) setLoading(false); });
-    return () => { alive = false; };
-  }, []);
-  const filtered = useMemo(() => rows.filter(row =>
-    (status === "Semua" || row.status === status) &&
-    (row.id + " " + row.customer + " " + row.unit).toLowerCase().includes(search.toLowerCase())
-  ), [rows, status, search]);
-  const size = 10;
-  const pages = Math.max(1, Math.ceil(filtered.length / size));
-  const visible = filtered.slice((page - 1) * size, page * size);
-  const exportRows = () => exportCsv("rentalps-riwayat-sesi.csv",
-    ["ID Sesi", "Pelanggan", "Unit", "Konsol", "Ruangan", "Mulai", "Selesai", "Durasi menit", "Total IDR", "Status", "Status pembayaran", "Metode"],
-    filtered.map(r => [r.id, r.customer, r.unit, r.console_type, r.room, prettyTime(r.started_at), prettyTime(r.ended_at), r.duration_minutes, r.total, r.status, r.payment_status, r.payment_method])
+  async function refreshRows(){
+    setLoading(true);setError("");
+    try{setRows(await loadHistorySessions());}
+    catch(e){setError(e instanceof Error?e.message:"Riwayat gagal dimuat.");}
+    finally{setLoading(false);}
+  }
+  useEffect(()=>{
+    let alive=true;
+    void refreshRows();
+    const unsubscribe=subscribeToRentalChanges(()=>{if(alive)void refreshRows();});
+    return()=>{alive=false;unsubscribe();};
+  },[]);
+  const filtered=useMemo(()=>rows.filter(row=>{
+    const needle=(row.id+" "+row.customer+" "+row.unit).toLowerCase();
+    const time=new Date(row.ended_at??row.started_at);
+    const key=`${time.getFullYear()}-${String(time.getMonth()+1).padStart(2,"0")}-${String(time.getDate()).padStart(2,"0")}`;
+    return (status==="Semua"||row.status===status)
+      &&(paymentStatus==="Semua"||row.payment_status===paymentStatus)
+      &&(methodFilter==="Semua"||row.payment_method.toLowerCase()===methodFilter.toLowerCase())
+      &&(!fromDate||key>=fromDate)&&(!toDate||key<=toDate)
+      &&needle.includes(search.toLowerCase());
+  }),[rows,status,paymentStatus,methodFilter,fromDate,toDate,search]);
+  const size=10;
+  const pages=Math.max(1,Math.ceil(filtered.length/size));
+  const visible=filtered.slice((page-1)*size,page*size);
+  const exportRows=()=>exportCsv("rentalps-riwayat-transaksi.csv",
+    ["ID Sesi","Pelanggan","Unit","Konsol","Ruangan","Mulai","Selesai","Durasi menit","Rental IDR","F&B IDR","Total tagihan IDR","Terbayar IDR","Sisa IDR","Status sesi","Status pembayaran","Metode"],
+    filtered.map(r=>[r.id,r.customer,r.unit,r.console_type,r.room,prettyTime(r.started_at),prettyTime(r.ended_at),
+      r.duration_minutes,r.rental_total,r.fnb_total,r.total,r.paid_amount,r.outstanding,r.status,r.payment_status,r.payment_method])
   );
+  const openSettlement=(row:HistoryRecord)=>{
+    if(!row.ended_at||row.outstanding<=0)return;
+    setSettling(row);setSettleReceived(String(row.outstanding));setSettleRequestKey(createPaymentRequestKey());
+    setError("");setNotice("");
+  };
   const submitSettlement=async(e:FormEvent)=>{
-    e.preventDefault();if(!settling)return;setSettleBusy(true);setError("");
+    e.preventDefault();if(!settling)return;setSettleBusy(true);setError("");setNotice("");
     try{
-      const result=await settleSessionPayment({sessionId:settling.id,method:settleMethod,receivedAmount:Number(settleReceived)});
+      const result=await settleSessionPayment({sessionId:settling.id,method:settleMethod,receivedAmount:Number(settleReceived),idempotencyKey:settleRequestKey});
       if(result.error)throw result.error;
       const data=result.data as {applied?:number;change?:number;outstanding?:number};
       setRows(await loadHistorySessions());
-      setSettling(null);
-      setError("");
+      setSettling(null);setSettleRequestKey(createPaymentRequestKey());
+      setNotice("Pembayaran gabungan dibukukan "+formatIDR(Number(data.applied||0))+
+        "; kembalian "+formatIDR(Number(data.change||0))+"; sisa transaksi "+formatIDR(Number(data.outstanding||0))+".");
     }catch(e){setError(e instanceof Error?e.message:"Pelunasan gagal.");}
     finally{setSettleBusy(false);}
   };
   return <div className="page-content">
-    <div className="page-heading"><div><h2>Riwayat Sesi</h2><p>Transaksi rental yang tersimpan atau data demo.</p></div><button className="btn btn-secondary" onClick={exportRows}>Ekspor CSV</button></div>
-    {!isSupabaseConfigured && <div className="mode-notice">Mode demo: data belum berasal dari database rental.</div>}
-    {error && <div className="app-alert error" role="alert">{error}</div>}
-    <div className="panel filters"><label><span>Cari sesi</span><div className="field"><input value={search} onChange={e => { setSearch(e.target.value); setPage(1); }} placeholder="ID sesi, pelanggan, atau unit" /></div></label><label><span>Status</span><select value={status} onChange={e => { setStatus(e.target.value); setPage(1); }}><option>Semua</option><option>Selesai</option><option>Aktif</option><option>Dijeda</option><option>Overtime</option><option>Dibatalkan</option></select></label><span className="history-count">{filtered.length} sesi</span></div>
-    <div className="panel table-wrap"><table><thead><tr>{["ID Sesi", "Pelanggan", "Unit", "Mulai", "Durasi", "Total", "Status", "Pembayaran", "Struk"].map(h => <th key={h}>{h}</th>)}</tr></thead><tbody>
-      {loading ? <tr><td colSpan={9} className="empty-cell">Memuat transaksi…</td></tr> : visible.length === 0 ? <tr><td colSpan={9} className="empty-cell">Tidak ada transaksi untuk filter ini.</td></tr> : visible.map(r => <tr key={r.id}><td className="session-id">{r.id.slice(0, 14)}</td><td>{r.customer}</td><td>{r.unit}</td><td>{prettyTime(r.started_at)}</td><td>{durationText(r.duration_minutes)}</td><td>{formatIDR(r.total)}</td><td><span className={"table-status " + r.status.toLowerCase()}>{r.status}</span></td><td>{r.payment_status === "paid" ? "Lunas" : r.payment_status === "partial" ? "Sebagian" : "Belum dibayar"}{r.payment_method !== "—" ? " · " + r.payment_method.toUpperCase() : ""}</td><td>{isSupabaseConfigured&&r.ended_at&&<button type="button" className="btn btn-secondary" onClick={()=>onReceipt(r.id)}>Struk</button>}</td></tr>)}
-    </tbody></table><div className="table-footer"><span>{filtered.length === 0 ? 0 : (page - 1) * size + 1}–{Math.min(page * size, filtered.length)} dari {filtered.length} sesi</span><div><button disabled={page <= 1} onClick={() => setPage(n => Math.max(1, n - 1))}>‹</button><button className="active">{page}/{pages}</button><button disabled={page >= pages} onClick={() => setPage(n => Math.min(pages, n + 1))}>›</button></div></div></div>
-    {settling&&<div className="modal-backdrop" onClick={()=>setSettling(null)}><form className="modal" onClick={e=>e.stopPropagation()} onSubmit={e=>void submitSettlement(e)}><div className="modal-head"><div><span className="eyebrow">{settling.id.slice(0,12)}</span><h2>Pelunasan transaksi</h2></div><button type="button" className="icon-btn" onClick={()=>setSettling(null)}>×</button></div><div className="receipt-lines"><div><span>Total tagihan</span><b>{formatIDR(settling.total)}</b></div><div><span>Sudah terbayar</span><b>{formatIDR(settling.paid_amount)}</b></div><div className="grand"><span>Sisa tagihan</span><strong>{formatIDR(Math.max(0,settling.total-settling.paid_amount))}</strong></div></div><label><span>Metode pembayaran</span><select value={settleMethod} onChange={e=>setSettleMethod(e.target.value as "cash"|"transfer"|"qris"|"other")}>{paymentMethods.map(m=><option key={m} value={m}>{m==="cash"?"Tunai":m==="transfer"?"Transfer":m==="qris"?"QRIS":"Lainnya"}</option>)}</select></label><label><span>Uang diterima (Rp)</span><input type="number" min="1" required value={settleReceived} onChange={e=>setSettleReceived(e.target.value)}/></label><div className="change"><span>Perkiraan kembalian</span><b>{formatIDR(Math.max(0,Number(settleReceived||0)-(settling.total-settling.paid_amount)))}</b></div><div className="modal-actions"><button type="button" className="btn btn-secondary" onClick={()=>setSettling(null)}>Batal</button><button className="btn btn-primary" disabled={settleBusy||Number(settleReceived)<=0}>{settleBusy?"Menyimpan…":"Simpan pelunasan"}</button></div></form></div>}
+    <div className="page-heading"><div><h2>Riwayat Transaksi</h2><p>Riwayat menggabungkan tagihan rental dan F&B yang terhubung ke sesi yang sama.</p></div><button className="btn btn-secondary" onClick={exportRows}>Ekspor CSV</button></div>
+    {!isSupabaseConfigured&&<div className="mode-notice">Mode demo: data belum berasal dari database rental.</div>}
+    {error&&<div className="app-alert error" role="alert">{error}</div>}
+    {notice&&<div className="app-alert" role="status">{notice}<button onClick={()=>setNotice("")}>×</button></div>}
+    <div className="panel filters history-filters">
+      <label><span>Cari transaksi</span><div className="field"><input value={search} onChange={e=>{setSearch(e.target.value);setPage(1);}} placeholder="ID sesi, pelanggan, atau unit"/></div></label>
+      <label><span>Status sesi</span><select value={status} onChange={e=>{setStatus(e.target.value);setPage(1);}}><option>Semua</option><option>Selesai</option><option>Aktif</option><option>Dijeda</option><option>Overtime</option><option>Dibatalkan</option></select></label>
+      <label><span>Status pembayaran</span><select value={paymentStatus} onChange={e=>{setPaymentStatus(e.target.value);setPage(1);}}><option value="Semua">Semua</option><option value="paid">Lunas</option><option value="partial">Sebagian</option><option value="unpaid">Belum dibayar</option></select></label>
+      <label><span>Metode</span><select value={methodFilter} onChange={e=>{setMethodFilter(e.target.value);setPage(1);}}><option>Semua</option><option value="cash">Tunai</option><option value="qris">QRIS</option><option value="transfer">Transfer</option><option value="other">Lainnya</option><option value="campuran">Campuran</option><option value="—">Belum ada</option></select></label>
+      <label><span>Tanggal mulai</span><input type="date" value={fromDate} max={toDate||undefined} onChange={e=>{setFromDate(e.target.value);setPage(1);}}/></label>
+      <label><span>Tanggal selesai</span><input type="date" value={toDate} min={fromDate||undefined} onChange={e=>{setToDate(e.target.value);setPage(1);}}/></label>
+      <span className="history-count">{filtered.length} transaksi</span>
+      <button className="btn btn-secondary" onClick={()=>void refreshRows()}>Muat ulang</button>
+    </div>
+    <div className="panel table-wrap"><table><thead><tr>{["ID Sesi","Pelanggan","Unit","Mulai","Durasi","Rental","F&B","Total","Pembayaran","Aksi"].map(h=><th key={h}>{h}</th>)}</tr></thead><tbody>
+      {loading?<tr><td colSpan={10} className="empty-cell">Memuat transaksi…</td></tr>:visible.length===0?<tr><td colSpan={10} className="empty-cell">Tidak ada transaksi untuk filter ini.</td></tr>:visible.map(r=><tr key={r.id}>
+        <td className="session-id">{r.id.slice(0,14)}</td><td>{r.customer}</td><td>{r.unit}</td><td>{prettyTime(r.started_at)}</td><td>{durationText(r.duration_minutes)}</td>
+        <td>{formatIDR(r.rental_total)}</td><td>{formatIDR(r.fnb_total)}</td><td><b>{formatIDR(r.total)}</b><small className="table-subtext">{formatIDR(r.paid_amount)} dibayar · {formatIDR(r.outstanding)} tersisa</small></td>
+        <td><span className={"table-status "+r.payment_status}>{r.payment_status==="paid"?"Lunas":r.payment_status==="partial"?"Sebagian":"Belum dibayar"}</span>{r.payment_method!=="—"&&<small className="table-subtext">{r.payment_method==="campuran"?"Metode campuran":r.payment_method.toUpperCase()}</small>}</td>
+        <td className="management-actions">{isSupabaseConfigured&&r.ended_at&&<><button type="button" className="btn btn-secondary" onClick={()=>onReceipt(r.id)}>Struk</button>{r.outstanding>0&&<button type="button" className="btn btn-primary" onClick={()=>openSettlement(r)}>Bayar sisa</button>}</>}</td>
+      </tr>)}
+    </tbody></table><div className="table-footer"><span>{filtered.length===0?0:(page-1)*size+1}–{Math.min(page*size,filtered.length)} dari {filtered.length}</span><div><button disabled={page<=1} onClick={()=>setPage(n=>Math.max(1,n-1))}>‹</button><button className="active">{page}/{pages}</button><button disabled={page>=pages} onClick={()=>setPage(n=>Math.min(pages,n+1))}>›</button></div></div></div>
+    {settling&&<div className="modal-backdrop" onClick={()=>{if(!settleBusy)setSettling(null);}}><form className="modal" onClick={e=>e.stopPropagation()} onSubmit={e=>void submitSettlement(e)}>
+      <div className="modal-head"><div><span className="eyebrow">{settling.id.slice(0,12)}</span><h2>Pelunasan rental + F&B</h2></div><button type="button" className="icon-btn" disabled={settleBusy} onClick={()=>setSettling(null)}>×</button></div>
+      <div className="receipt-lines"><div><span>Biaya rental</span><b>{formatIDR(settling.rental_total)}</b></div><div><span>Total F&B terkait</span><b>{formatIDR(settling.fnb_total)}</b></div><div><span>Total tagihan</span><b>{formatIDR(settling.total)}</b></div><div><span>Sudah dibayar</span><b>{formatIDR(settling.paid_amount)}</b></div><div className="grand"><span>Sisa tagihan gabungan</span><strong>{formatIDR(settling.outstanding)}</strong></div></div>
+      <label><span>Metode pembayaran</span><select value={settleMethod} onChange={e=>setSettleMethod(e.target.value as PaymentMethod)}>{paymentMethods.map(m=><option key={m} value={m}>{m==="cash"?"Tunai":m==="transfer"?"Transfer":m==="qris"?"QRIS":"Lainnya"}</option>)}</select></label>
+      <label><span>Uang diterima (Rp)</span><input type="number" min="1" required value={settleReceived} onChange={e=>setSettleReceived(e.target.value)}/></label>
+      <div className="change"><span>Perkiraan kembalian</span><b>{formatIDR(Math.max(0,Number(settleReceived||0)-settling.outstanding))}</b></div>
+      <div className="modal-actions"><button type="button" className="btn btn-secondary" disabled={settleBusy} onClick={()=>setSettling(null)}>Batal</button><button className="btn btn-primary" disabled={settleBusy||Number(settleReceived)<=0}>{settleBusy?"Menyimpan…":"Simpan pelunasan gabungan"}</button></div>
+    </form></div>}
   </div>;
 }
 
 export function ReportsPageV2() {
-  const [rows, setRows] = useState<HistoryRecord[]>([]);
+  const [rows,setRows]=useState<HistoryRecord[]>([]);
   const [payments,setPayments]=useState<RevenuePayment[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
-  const [range, setRange] = useState("30");
-  useEffect(() => {
-    let alive = true;
-    Promise.all([loadHistorySessions(),loadRevenuePayments(new Date(Date.now()-100*86400000).toISOString())])
-      .then(([data,paymentRows]) => { if(alive){setRows(data);setPayments(paymentRows);} })
-      .catch(e => { if (alive) setError(e instanceof Error ? e.message : "Laporan gagal dimuat."); })
-      .finally(() => { if (alive) setLoading(false); });
-    return () => { alive = false; };
-  }, []);
-  const cutoff = Date.now() - Number(range) * 86400000;
-  const scoped = rows.filter(r => new Date(r.started_at).getTime() >= cutoff);
-  const completed = scoped.filter(r => r.status === "Selesai");
+  const [standaloneFnb,setStandaloneFnb]=useState<Array<{id:string;total:number;paid_amount:number;outstanding:number;created_at:string}>>([]);
+  const [loading,setLoading]=useState(true);
+  const [error,setError]=useState("");
+  const [range,setRange]=useState("30");
+  useEffect(()=>{
+    let alive=true;
+    const refresh=async()=>{
+      const since=new Date(Date.now()-100*86400000).toISOString();
+      try{
+        const [data,paymentRows,standaloneRows]=await Promise.all([loadHistorySessions(),loadRevenuePayments(since),loadStandaloneFnbOrders(since)]);
+        if(alive){setRows(data);setPayments(paymentRows);setStandaloneFnb(standaloneRows);setError("");}
+      }catch(e){if(alive)setError(e instanceof Error?e.message:"Laporan gagal dimuat.");}
+      finally{if(alive)setLoading(false);}
+    };
+    void refresh();
+    const unsubscribe=subscribeToRentalChanges(()=>{if(alive)void refresh();});
+    return()=>{alive=false;unsubscribe();};
+  },[]);
+  const dayKey=(value:string)=>{
+    const d=new Date(value);
+    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+  };
+  const cutoff=Date.now()-Number(range)*86400000;
+  const scoped=rows.filter(r=>new Date(r.ended_at??r.started_at).getTime()>=cutoff);
+  const completed=scoped.filter(r=>r.status==="Selesai");
   const scopedPayments=payments.filter(p=>new Date(p.paid_at).getTime()>=cutoff);
+  const scopedStandalone=standaloneFnb.filter(o=>new Date(o.created_at).getTime()>=cutoff);
   const revenue=scopedPayments.reduce((sum,p)=>sum+p.amount,0);
-  const paidOrderCount=new Set(scopedPayments.map(p=>p.order_id||p.id)).size;
+  const invoiceCount=new Set(scopedPayments.map(p=>p.invoice_id)).size;
   const minutes=completed.reduce((sum,r)=>sum+r.duration_minutes,0);
+  const billed=completed.reduce((sum,r)=>sum+r.total,0)+scopedStandalone.reduce((sum,o)=>sum+o.total,0);
+  const receivables=completed.reduce((sum,r)=>sum+r.outstanding,0)+scopedStandalone.reduce((sum,o)=>sum+o.outstanding,0);
   const days=Array.from({length:7},(_,i)=>{
     const d=new Date();d.setHours(0,0,0,0);d.setDate(d.getDate()-(6-i));
-    const key=d.toLocaleDateString("en-CA");
-    const sessionDay=rows.filter(r=>r.status==="Selesai"&&new Date(r.started_at).toLocaleDateString("en-CA")===key);
-    const paidDay=payments.filter(p=>new Date(p.paid_at).toLocaleDateString("en-CA")===key);
-    return {key,label:d.toLocaleDateString("id-ID",{weekday:"short"}),amount:paidDay.reduce((sum,p)=>sum+p.amount,0),count:new Set(paidDay.map(p=>p.order_id||p.id)).size,minutes:sessionDay.reduce((sum,r)=>sum+r.duration_minutes,0)};
+    const key=dayKey(d.toISOString());
+    const completedOnDay=rows.filter(r=>r.status==="Selesai"&&dayKey(r.ended_at??r.started_at)===key);
+    const standaloneOnDay=standaloneFnb.filter(o=>dayKey(o.created_at)===key);
+    const paidOnDay=payments.filter(p=>dayKey(p.paid_at)===key);
+    return {
+      key,label:d.toLocaleDateString("id-ID",{weekday:"short"}),
+      received:paidOnDay.reduce((sum,p)=>sum+p.amount,0),
+      billed:completedOnDay.reduce((sum,r)=>sum+r.total,0)+standaloneOnDay.reduce((sum,o)=>sum+o.total,0),
+      outstanding:completedOnDay.reduce((sum,r)=>sum+r.outstanding,0)+standaloneOnDay.reduce((sum,o)=>sum+o.outstanding,0),
+      count:new Set(paidOnDay.map(p=>p.invoice_id)).size,
+      minutes:completedOnDay.reduce((sum,r)=>sum+r.duration_minutes,0)
+    };
   });
-  const max=Math.max(1,...days.map(d=>d.amount));
-  const reportHeaders=["Tanggal","Transaksi dibayar","Pembayaran diterima IDR","Durasi sesi rental (menit)"];
-  const reportData=days.map(d=>[d.key,d.count,d.amount,d.minutes]);
-  const exportRows=()=>exportCsv("rentalps-laporan-pendapatan.csv",reportHeaders,reportData);
+  const max=Math.max(1,...days.map(d=>d.received));
+  const reportHeaders=["Tanggal","Invoice menerima pembayaran","Tagihan tercatat IDR","Uang diterima IDR","Piutang tersisa IDR","Durasi sesi rental (menit)"];
+  const reportData=days.map(d=>[d.key,d.count,d.billed,d.received,d.outstanding,d.minutes]);
+  const exportRows=()=>exportCsv("rentalps-laporan-keuangan.csv",reportHeaders,reportData);
   return <div className="page-content">
-    <div className="page-heading"><div><h2>Laporan</h2><p>Ringkasan transaksi selesai dalam periode terpilih.</p></div><div className="export-actions"><button className="btn btn-secondary" onClick={exportRows}>CSV</button><button className="btn btn-secondary" onClick={()=>exportExcel("rentalps-laporan.xls","Laporan pendapatan",reportHeaders,reportData)}>Excel</button><button className="btn btn-secondary" onClick={()=>exportPdf("rentalps-laporan.pdf","Laporan pendapatan",reportHeaders,reportData)}>PDF</button></div></div>
-    {!isSupabaseConfigured && <div className="mode-notice">Mode demo: angka di bawah merupakan simulasi.</div>}
-    {error && <div className="app-alert error" role="alert">{error}</div>}
-    <div className="range-row"><div className="filter-pills">{[{ value: "7", label: "7 hari" }, { value: "30", label: "30 hari" }, { value: "90", label: "3 bulan" }].map(x => <button key={x.value} className={range === x.value ? "selected" : ""} onClick={() => setRange(x.value)}>{x.label}</button>)}</div><span className="report-range">{loading ? "Memuat…" : scoped.length + " sesi"}</span></div>
+    <div className="page-heading"><div><h2>Laporan Keuangan</h2><p>Pisahkan nilai tagihan, uang yang benar-benar diterima, dan piutang tersisa.</p></div><div className="export-actions"><button className="btn btn-secondary" onClick={exportRows}>CSV</button><button className="btn btn-secondary" onClick={()=>exportExcel("rentalps-laporan-keuangan.xls","Laporan keuangan",reportHeaders,reportData)}>Excel</button><button className="btn btn-secondary" onClick={()=>exportPdf("rentalps-laporan-keuangan.pdf","Laporan keuangan",reportHeaders,reportData)}>PDF</button></div></div>
+    {!isSupabaseConfigured&&<div className="mode-notice">Mode demo: angka di bawah merupakan simulasi.</div>}
+    {error&&<div className="app-alert error" role="alert">{error}</div>}
+    <div className="range-row"><div className="filter-pills">{[{value:"7",label:"7 hari"},{value:"30",label:"30 hari"},{value:"90",label:"3 bulan"}].map(x=><button key={x.value} className={range===x.value?"selected":""} onClick={()=>setRange(x.value)}>{x.label}</button>)}</div><span className="report-range">{loading?"Memuat…":completed.length+" sesi selesai · "+scopedStandalone.length+" pesanan F&B mandiri"}</span></div>
     <div className="summary-grid report">
-      <div className="summary-card"><span className="summary-icon indigo">Rp</span><div><small>Pembayaran diterima (Rental + F&amp;B)</small><strong>{formatIDR(revenue)}</strong><span>{isSupabaseConfigured ? "Transaksi selesai" : "Data demo"}</span></div></div>
-      <div className="summary-card"><span className="summary-icon blue">#</span><div><small>Sesi selesai</small><strong>{completed.length}</strong><span>Periode terpilih</span></div></div>
-      <div className="summary-card"><span className="summary-icon green">↗</span><div><small>Rata-rata transaksi</small><strong>{formatIDR(paidOrderCount ? revenue / paidOrderCount : 0)}</strong><span>Rata-rata per transaksi dibayar</span></div></div>
-      <div className="summary-card"><span className="summary-icon yellow">◷</span><div><small>Jam tersewa</small><strong>{(minutes / 60).toFixed(1)} jam</strong><span>Durasi sesi selesai</span></div></div>
+      <div className="summary-card"><span className="summary-icon indigo">Rp</span><div><small>Total tagihan tercatat</small><strong>{formatIDR(billed)}</strong><span>Sesi selesai + F&B mandiri</span></div></div>
+      <div className="summary-card"><span className="summary-icon blue">↙</span><div><small>Uang diterima</small><strong>{formatIDR(revenue)}</strong><span>Berdasarkan waktu pembayaran</span></div></div>
+      <div className="summary-card"><span className="summary-icon yellow">◷</span><div><small>Piutang tersisa</small><strong>{formatIDR(receivables)}</strong><span>Transaksi pada periode ini</span></div></div>
+      <div className="summary-card"><span className="summary-icon green">#</span><div><small>Invoice menerima uang</small><strong>{invoiceCount}</strong><span>Rental + F&B dihitung satu invoice bila terhubung</span></div></div>
+      <div className="summary-card"><span className="summary-icon blue">↗</span><div><small>Rata-rata uang per invoice</small><strong>{formatIDR(invoiceCount?revenue/invoiceCount:0)}</strong><span>Berdasarkan invoice yang menerima pembayaran</span></div></div>
+      <div className="summary-card"><span className="summary-icon indigo">◴</span><div><small>Jam rental selesai</small><strong>{(minutes/60).toFixed(1)} jam</strong><span>Durasi sesi selesai pada periode</span></div></div>
     </div>
-    <div className="report-grid"><div className="panel chart-card wide"><div><h3>Pendapatan harian</h3><p>7 hari terakhir · waktu pembayaran diterima, termasuk F&amp;B</p></div><div className="bar-chart">{days.map(d => <div key={d.key}><span title={formatIDR(d.amount)} style={{ height: Math.max(3, d.amount / max * 100) + "%" }} /><small>{d.label}</small></div>)}</div></div>
-      <div className="panel chart-card"><div><h3>Ringkasan status</h3><p>Periode terpilih</p></div><div className="report-status-list">{["Selesai", "Aktif", "Dijeda", "Overtime", "Dibatalkan"].map(s => <div key={s}><span>{s}</span><b>{scoped.filter(r => r.status === s).length}</b></div>)}</div></div>
-      <div className="panel chart-card heat"><div><h3>Metode pembayaran</h3><p>Transaksi selesai</p></div><div className="report-status-list">{[{ key: "cash", name: "Tunai" }, { key: "transfer", name: "Transfer" }, { key: "qris", name: "QRIS" }, { key: "other", name: "Lainnya" }].map(m => <div key={m.key}><span>{m.name}</span><b>{scopedPayments.filter(p=>p.method===m.key).length}</b></div>)}</div></div>
+    <div className="report-grid">
+      <div className="panel chart-card wide"><div><h3>Penerimaan harian</h3><p>7 hari terakhir · pembayaran rental dan F&B pada tanggal uang diterima</p></div><div className="bar-chart">{days.map(d=><div key={d.key}><span title={formatIDR(d.received)} style={{height:Math.max(3,d.received/max*100)+"%"}}/><small>{d.label}</small></div>)}</div></div>
+      <div className="panel chart-card"><div><h3>Ringkasan status sesi</h3><p>Periode terpilih</p></div><div className="report-status-list">{["Selesai","Aktif","Dijeda","Overtime","Dibatalkan"].map(value=><div key={value}><span>{value}</span><b>{scoped.filter(r=>r.status===value).length}</b></div>)}</div></div>
+      <div className="panel chart-card heat"><div><h3>Metode pembayaran</h3><p>Jumlah pencatatan pembayaran pada periode</p></div><div className="report-status-list">{[{key:"cash",name:"Tunai"},{key:"transfer",name:"Transfer"},{key:"qris",name:"QRIS"},{key:"other",name:"Lainnya"}].map(m=><div key={m.key}><span>{m.name}</span><b>{scopedPayments.filter(p=>p.method===m.key).length}</b></div>)}</div></div>
     </div>
   </div>;
 }

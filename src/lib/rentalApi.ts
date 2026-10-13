@@ -1,4 +1,5 @@
 import { isSupabaseConfigured, requireSupabase } from './supabase';
+import { summarizeInvoice } from './settlement';
 export type UnitStatus='Kosong'|'Dipakai'|'Hampir habis'|'Overtime'|'Dijeda'|'Maintenance';
 export type UnitView={dbId?:string;id:string;type:string;room:string;status:UnitStatus;time:string;label:string;customer:string;start:string;end:string;cost:string;progress:number;remainingSeconds?:number;plannedSeconds?:number;startedAt?:string;plannedEndAt?:string|null;sessionId?:string;ratePlanId?:string;note?:string;billingType?:string};
 export type RatePlan={id:string;name:string;billing_type:'hourly'|'package'|'open';duration_minutes:number|null;price:number;price_per_hour:number;console_type:string;room:string};
@@ -12,7 +13,7 @@ export async function startSession(i:{unitId:string;ratePlanId?:string;durationM
 export async function extendSession(id:string,minutes:number){return requireSupabase().rpc('extend_rental_session',{p_session_id:id,p_minutes:minutes});}
 export async function pauseSession(id:string){return requireSupabase().rpc('pause_rental_session',{p_session_id:id,p_reason:null});}
 export async function resumeSession(id:string){return requireSupabase().rpc('resume_rental_session',{p_session_id:id});}
-export async function endSession(i:{sessionId:string;method:'cash'|'transfer'|'qris'|'other';receivedAmount:number}){return requireSupabase().rpc('end_rental_session',{p_session_id:i.sessionId,p_payment_method:i.method,p_received_amount:i.receivedAmount});}
+export async function endSession(i:{sessionId:string;method:'cash'|'transfer'|'qris'|'other';receivedAmount:number;idempotencyKey?:string}){return requireSupabase().rpc('end_rental_session',{p_session_id:i.sessionId,p_payment_method:i.method,p_received_amount:i.receivedAmount,p_idempotency_key:i.idempotencyKey??null});}
 export async function setUnitMaintenance(id:string,enabled:boolean,note=''){const {businessId}=await currentBusinessContext();const {data,error}=await requireSupabase().from('units').update({status:enabled?'maintenance':'available',notes:note||null}).eq('id',id).eq('business_id',businessId).select('id');if(error)throw error;if(!data?.length)throw new Error('Unit tidak ditemukan atau akses ditolak.');}
 export function subscribeToRentalChanges(cb:()=>void){
   if(!isSupabaseConfigured)return ()=>undefined;
@@ -62,7 +63,8 @@ export type ManagedMember = {
 export type HistoryRecord = {
   id: string; customer: string; unit: string; console_type: string; room: string;
   started_at: string; ended_at: string|null; duration_minutes: number;
-  total: number; status: 'Selesai'|'Aktif'|'Dijeda'|'Overtime'|'Dibatalkan';
+  total: number; rental_total: number; fnb_total: number; outstanding: number;
+  status: 'Selesai'|'Aktif'|'Dijeda'|'Overtime'|'Dibatalkan';
   payment_status: string; payment_method: string; paid_amount: number;
 };
 async function readFunctionError(error: unknown, fallback: string): Promise<string> {
@@ -193,7 +195,7 @@ export async function updateManagedMember(input:{user_id:string;role?:'admin'|'o
   if(error) throw new Error(await readFunctionError(error,'Gagal mengubah anggota'));
   if(data?.error) throw new Error(String(data.error));
 }
-const demoHistory:HistoryRecord[]=[
+const demoHistory:Omit<HistoryRecord,'rental_total'|'fnb_total'|'outstanding'>[]=[
   {id:'SES-DEMO-018',customer:'Budi Santoso',unit:'PS 03',console_type:'PS4',room:'Reguler',started_at:new Date(Date.now()-45*60000).toISOString(),ended_at:new Date(Date.now()-5*60000).toISOString(),duration_minutes:40,total:15000,status:'Selesai',payment_status:'paid',payment_method:'cash',paid_amount:15000},
   {id:'SES-DEMO-017',customer:'Siti Aisyah',unit:'PS 06',console_type:'PS4',room:'Reguler',started_at:new Date(Date.now()-120*60000).toISOString(),ended_at:new Date(Date.now()-10*60000).toISOString(),duration_minutes:110,total:20000,status:'Selesai',payment_status:'paid',payment_method:'qris',paid_amount:20000},
   {id:'SES-DEMO-016',customer:'Rizky Pratama',unit:'PS 01',console_type:'PS5',room:'VIP',started_at:new Date(Date.now()-90*60000).toISOString(),ended_at:null,duration_minutes:90,total:45000,status:'Aktif',payment_status:'unpaid',payment_method:'—',paid_amount:0},
@@ -208,22 +210,48 @@ function durationBetween(start:string,end:string|null) {
   return Math.max(0,Math.round(((end?new Date(end).getTime():Date.now())-new Date(start).getTime())/60000));
 }
 export async function loadHistorySessions():Promise<HistoryRecord[]> {
-  if(!isSupabaseConfigured) return demoHistory;
+  if(!isSupabaseConfigured) return demoHistory.map(row=>({
+    ...row,rental_total:row.total,fnb_total:0,outstanding:Math.max(0,row.total-row.paid_amount)
+  }));
   const {businessId}=await currentBusinessContext();
   const since=new Date(Date.now()-90*24*60*60*1000).toISOString();
   const {data,error}=await requireSupabase().from('sessions')
     .select('id,customer_name,status,billing_type,started_at,planned_end_at,ended_at,total,subtotal,payment_status,units(name,code,console_type,room),payments(method,amount,received_amount,change_amount,paid_at)')
     .eq('business_id',businessId).gte('started_at',since).order('started_at',{ascending:false}).limit(500);
   if(error) throw error;
-  return (data??[]).map((s:any)=>({
-    id:s.id,customer:s.customer_name||'Pelanggan',unit:s.units?.name||s.units?.code||'Unit',
-    console_type:s.units?.console_type||'—',room:s.units?.room||'—',started_at:s.started_at,
-    ended_at:s.ended_at??null,duration_minutes:durationBetween(s.started_at,s.ended_at),
-    total:Number(s.total??s.subtotal??0),status:statusLabel(s.status),
-    payment_status:s.payment_status||'unpaid',
-    payment_method:s.payments?.[0]?.method||'—',
-    paid_amount:(s.payments??[]).reduce((sum:number,p:any)=>sum+Number(p.amount||0),0)
-  })) as HistoryRecord[];
+  const sessions=data??[];
+  if(!sessions.length)return [];
+  const sessionIds=sessions.map((row:any)=>row.id);
+  const {data:fnbData,error:fnbError}=await requireSupabase().from('fb_orders')
+    .select('id,session_id,total,status,fb_payments(amount,method)')
+    .eq('business_id',businessId).in('session_id',sessionIds).neq('status','cancelled');
+  if(fnbError)throw fnbError;
+  const ordersBySession=new Map<string,any[]>();
+  for(const order of fnbData??[]){
+    const key=String((order as any).session_id);
+    const grouped=ordersBySession.get(key)??[];
+    grouped.push(order);ordersBySession.set(key,grouped);
+  }
+  return sessions.map((s:any)=>{
+    const rentalTotal=Number(s.total??s.subtotal??0);
+    const rentalPaid=(s.payments??[]).reduce((sum:number,p:any)=>sum+Number(p.amount||0),0);
+    const linkedOrders=ordersBySession.get(String(s.id))??[];
+    const fnbTotal=linkedOrders.reduce((sum:number,o:any)=>sum+Number(o.total||0),0);
+    const fnbPaid=linkedOrders.reduce((sum:number,o:any)=>sum+(o.fb_payments??[]).reduce((part:number,p:any)=>part+Number(p.amount||0),0),0);
+    const invoice=summarizeInvoice(rentalTotal,rentalPaid,fnbTotal,fnbPaid);
+    const methods=[...(s.payments??[]).map((p:any)=>String(p.method||'')),
+      ...linkedOrders.flatMap((o:any)=>(o.fb_payments??[]).map((p:any)=>String(p.method||'')))]
+      .filter(Boolean);
+    const uniqueMethods=[...new Set(methods)];
+    return {
+      id:s.id,customer:s.customer_name||'Pelanggan',unit:s.units?.name||s.units?.code||'Unit',
+      console_type:s.units?.console_type||'—',room:s.units?.room||'—',started_at:s.started_at,
+      ended_at:s.ended_at??null,duration_minutes:durationBetween(s.started_at,s.ended_at),
+      total:invoice.total,rental_total:rentalTotal,fnb_total:fnbTotal,outstanding:invoice.outstanding,
+      status:statusLabel(s.status),payment_status:invoice.payment_status,
+      payment_method:uniqueMethods.length>1?'campuran':uniqueMethods[0]||'—',paid_amount:invoice.paid
+    } as HistoryRecord;
+  });
 }
 
 export type AuditRecord = {
@@ -286,12 +314,17 @@ export async function requestPasswordReset(email:string):Promise<void>{
   const {error}=await requireSupabase().auth.resetPasswordForEmail(value,{redirectTo:'https://ps-nawfal5.vercel.app/'});
   if(error)throw new Error('Email pemulihan gagal dikirim: '+error.message);
 }
-export async function settleSessionPayment(input:{sessionId:string;method:'cash'|'transfer'|'qris'|'other';receivedAmount:number}){
-  return requireSupabase().rpc('add_session_payment',{p_session_id:input.sessionId,p_payment_method:input.method,p_received_amount:input.receivedAmount});
+export function createPaymentRequestKey():string{
+  const cryptoObject=globalThis.crypto;
+  if(cryptoObject?.randomUUID)return cryptoObject.randomUUID();
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g,(c)=>{const r=Math.floor(Math.random()*16);return (c==='x'?r:(r&0x3|0x8)).toString(16);});
+}
+export async function settleSessionPayment(input:{sessionId:string;method:'cash'|'transfer'|'qris'|'other';receivedAmount:number;idempotencyKey?:string}){
+  return requireSupabase().rpc('add_session_payment',{p_session_id:input.sessionId,p_payment_method:input.method,p_received_amount:input.receivedAmount,p_idempotency_key:input.idempotencyKey??null});
 }
 
 export type FbProduct={id:string;code:string;name:string;category:string;price:number;stock_quantity:number|null;is_active:boolean};
-export type FbOrder={id:string;order_no:string;customer_name:string|null;unit_id:string|null;unit_name:string|null;status:'open'|'paid'|'cancelled';payment_status:'unpaid'|'partial'|'paid';total:number;paid_amount:number;created_at:string;items:Array<{product_name:string;quantity:number;unit_price:number;line_total:number}>};
+export type FbOrder={id:string;order_no:string;customer_name:string|null;unit_id:string|null;session_id:string|null;unit_name:string|null;status:'open'|'paid'|'cancelled';payment_status:'unpaid'|'partial'|'paid';total:number;paid_amount:number;created_at:string;items:Array<{product_name:string;quantity:number;unit_price:number;line_total:number}>};
 export type FnbItemInput={product_id:string;quantity:number};
 export async function loadFbProducts():Promise<FbProduct[]>{
   if(!isSupabaseConfigured)return [
@@ -319,7 +352,7 @@ export async function saveFbProduct(input:Partial<FbProduct>&{code:string;name:s
 export async function loadFbOrders():Promise<FbOrder[]>{
   if(!isSupabaseConfigured)return [];
   const {businessId}=await currentBusinessContext();
-  const {data,error}=await requireSupabase().from('fb_orders').select('id,order_no,customer_name,unit_id,status,payment_status,total,created_at,units(name,code),fb_order_items(product_name,quantity,unit_price,line_total),fb_payments(amount)').eq('business_id',businessId).order('created_at',{ascending:false}).limit(150);
+  const {data,error}=await requireSupabase().from('fb_orders').select('id,order_no,customer_name,unit_id,session_id,status,payment_status,total,created_at,units(name,code),fb_order_items(product_name,quantity,unit_price,line_total),fb_payments(amount)').eq('business_id',businessId).order('created_at',{ascending:false}).limit(150);
   if(error)throw error;
   return (data??[]).map((o:any)=>({...o,unit_name:o.units?.name||o.units?.code||null,paid_amount:(o.fb_payments??[]).reduce((sum:number,p:any)=>sum+Number(p.amount||0),0),items:o.fb_order_items??[]})) as FbOrder[];
 }
@@ -330,8 +363,8 @@ export async function createFbOrder(input:{items:FnbItemInput[];unitId?:string;s
   if(error)throw error;
   return String(data);
 }
-export async function payFbOrder(input:{orderId:string;method:'cash'|'transfer'|'qris'|'other';receivedAmount:number}){
-  return requireSupabase().rpc('pay_fb_order',{p_order_id:input.orderId,p_payment_method:input.method,p_received_amount:input.receivedAmount});
+export async function payFbOrder(input:{orderId:string;method:'cash'|'transfer'|'qris'|'other';receivedAmount:number;idempotencyKey?:string}){
+  return requireSupabase().rpc('pay_fb_order',{p_order_id:input.orderId,p_payment_method:input.method,p_received_amount:input.receivedAmount,p_idempotency_key:input.idempotencyKey??null});
 }
 export async function cancelFbOrder(orderId:string){return requireSupabase().rpc('cancel_fb_order',{p_order_id:orderId});}
 export type PaymentMethod='cash'|'transfer'|'qris'|'other';
@@ -352,6 +385,37 @@ export async function loadSessionFnbSummary(sessionId:string):Promise<SessionFnb
   return {total:orders.reduce((sum,o)=>sum+o.total,0),paid:orders.reduce((sum,o)=>sum+o.paid_amount,0),outstanding:orders.reduce((sum,o)=>sum+o.outstanding,0),orders};
 }
 
+export type SessionCheckoutPreview={
+  session_id:string;rental_total:number;rental_paid:number;fnb_total:number;fnb_paid:number;
+  total:number;paid_total:number;outstanding:number;payment_status:string;
+  fnb_orders:Array<{id:string;order_no:string;total:number;paid_amount:number;outstanding:number}>;
+};
+export async function loadSessionCheckoutPreview(sessionId:string):Promise<SessionCheckoutPreview>{
+  const {data,error}=await requireSupabase().rpc('preview_rental_checkout',{p_session_id:sessionId});
+  if(error)throw error;
+  const value=data as any;
+  return {
+    session_id:String(value.session_id),rental_total:Number(value.rental_total||0),rental_paid:Number(value.rental_paid||0),
+    fnb_total:Number(value.fnb_total||0),fnb_paid:Number(value.fnb_paid||0),total:Number(value.total||0),
+    paid_total:Number(value.paid_total||0),outstanding:Number(value.outstanding||0),payment_status:String(value.payment_status||'unpaid'),
+    fnb_orders:(value.fnb_orders??[]).map((o:any)=>({id:String(o.id),order_no:String(o.order_no),total:Number(o.total||0),paid_amount:Number(o.paid_amount||0),outstanding:Number(o.outstanding||0)}))
+  };
+}
+export type StandaloneFnbSale={id:string;total:number;paid_amount:number;outstanding:number;created_at:string};
+export async function loadStandaloneFnbOrders(since:string):Promise<StandaloneFnbSale[]>{
+  if(!isSupabaseConfigured)return [];
+  const {businessId}=await currentBusinessContext();
+  const {data,error}=await requireSupabase().from('fb_orders')
+    .select('id,total,status,created_at,fb_payments(amount)')
+    .eq('business_id',businessId).is('session_id',null).neq('status','cancelled')
+    .gte('created_at',since).order('created_at',{ascending:false}).limit(5000);
+  if(error)throw error;
+  return (data??[]).map((o:any)=>{
+    const total=Number(o.total||0);
+    const paid_amount=(o.fb_payments??[]).reduce((sum:number,p:any)=>sum+Number(p.amount||0),0);
+    return {id:String(o.id),total,paid_amount,outstanding:Math.max(0,total-paid_amount),created_at:String(o.created_at)};
+  });
+}
 export type SessionReceiptItem={product_name:string;quantity:number;unit_price:number;line_total:number};
 export type SessionReceiptOrder={id:string;orderNo:string;total:number;paidAmount:number;outstanding:number;items:SessionReceiptItem[]};
 export type ReceiptBusinessSettings={name:string;phone:string;address:string;footer:string;showPhone:boolean;showAddress:boolean;paperWidth:'58'|'80'};
@@ -364,12 +428,15 @@ export async function loadSessionReceipt(sessionId:string):Promise<SessionReceip
   if(!isSupabaseConfigured)throw new Error('Struk dari database hanya tersedia saat Supabase terhubung.');
   const {businessId}=await currentBusinessContext();
   const client=requireSupabase();
-  const [sessionResult,ordersResult,businessResult]=await Promise.all([
+  const [sessionResult,ordersResult,businessResult,eventResult]=await Promise.all([
     client.from('sessions').select('id,customer_name,started_at,ended_at,total,subtotal,units(name,code),payments(method,amount,received_amount,change_amount,paid_at)')
       .eq('id',sessionId).eq('business_id',businessId).maybeSingle(),
     client.from('fb_orders').select('id,order_no,total,status,created_at,fb_order_items(product_name,quantity,unit_price,line_total),fb_payments(method,amount,received_amount,change_amount,paid_at)')
       .eq('business_id',businessId).eq('session_id',sessionId).neq('status','cancelled').order('created_at',{ascending:true}),
-    client.from('businesses').select('name,timezone,settings').eq('id',businessId).single()
+    client.from('businesses').select('name,timezone,settings').eq('id',businessId).single(),
+    client.from('session_events').select('event_type,payload,created_at')
+      .eq('business_id',businessId).eq('session_id',sessionId)
+      .in('event_type',['end','payment_received']).order('created_at',{ascending:true})
   ]);
   if(sessionResult.error)throw sessionResult.error;
   if(ordersResult.error)throw ordersResult.error;
@@ -388,19 +455,36 @@ export async function loadSessionReceipt(sessionId:string):Promise<SessionReceip
   const rentalPayments=(session.payments??[]).map((p:any)=>({...p,amount:Number(p.amount||0),received_amount:Number(p.received_amount||0),change_amount:Number(p.change_amount||0)}));
   const fnbPayments=(ordersResult.data??[]).flatMap((o:any)=>(o.fb_payments??[]).map((p:any)=>({...p,amount:Number(p.amount||0),received_amount:Number(p.received_amount||0),change_amount:Number(p.change_amount||0)})));
   const allPayments=[...rentalPayments,...fnbPayments].sort((a:any,b:any)=>new Date(a.paid_at||0).getTime()-new Date(b.paid_at||0).getTime());
+  // Checkout events retain tender/change from older split-payment logic that wrote only applied amounts to the ledger.
+  const checkoutEvents=(eventResult.data??[]) as Array<{event_type:string;payload:Record<string,unknown>|null;created_at:string}>;
+  const lastCheckoutEvent=checkoutEvents.at(-1);
+  const hasTenderEvents=checkoutEvents.some(event=>event.payload&&('received' in event.payload||'change' in event.payload));
+  const eventReceived=checkoutEvents.reduce((sum:number,event)=>sum+Number(event.payload?.received||0),0);
+  const eventChange=checkoutEvents.reduce((sum:number,event)=>sum+Number(event.payload?.change||0),0);
+  const laterPayments=lastCheckoutEvent
+    ?allPayments.filter((p:any)=>p.paid_at&&new Date(p.paid_at).getTime()>new Date(lastCheckoutEvent.created_at).getTime())
+    :allPayments;
+  const totalReceived=hasTenderEvents
+    ?eventReceived+laterPayments.reduce((sum:number,p:any)=>sum+Number(p.received_amount||0),0)
+    :allPayments.reduce((sum:number,p:any)=>sum+Number(p.received_amount||0),0);
+  const totalChange=hasTenderEvents
+    ?eventChange+laterPayments.reduce((sum:number,p:any)=>sum+Number(p.change_amount||0),0)
+    :allPayments.reduce((sum:number,p:any)=>sum+Number(p.change_amount||0),0);
   const totalRental=Number(session.total??session.subtotal??0);
   const totalFnb=fnbOrders.reduce((sum,o)=>sum+o.total,0);
-  const paidAmount=allPayments.reduce((sum:any,p:any)=>sum+p.amount,0);
+  const rentalPaid=rentalPayments.reduce((sum:number,p:any)=>sum+Number(p.amount||0),0);
+  const fnbPaid=fnbOrders.reduce((sum,o)=>sum+o.paidAmount,0);
+  const invoiceSummary=summarizeInvoice(totalRental,rentalPaid,totalFnb,fnbPaid);
   const settings=business.settings||{};
   const profile=settings.profile||{};
   const receipt=settings.receipt||{};
   const method=(allPayments.at(-1)?.method||'other') as PaymentMethod;
   return {
     id:session.id,unit:session.units?.name||session.units?.code||'Unit',customer:session.customer_name||'Pelanggan umum',
-    started:timeOnly(session.started_at),ended:timeOnly(session.ended_at),total:totalRental+totalFnb,rentalTotal:totalRental,fnbTotal:totalFnb,
-    fnbOrders,paidAmount,outstanding:Math.max(0,totalRental+totalFnb-paidAmount),method,
-    received:allPayments.reduce((sum:any,p:any)=>sum+p.received_amount,0),
-    change:allPayments.reduce((sum:any,p:any)=>sum+p.change_amount,0),
+    started:timeOnly(session.started_at),ended:timeOnly(session.ended_at),total:invoiceSummary.total,rentalTotal:totalRental,fnbTotal:totalFnb,
+    fnbOrders,paidAmount:invoiceSummary.paid,outstanding:invoiceSummary.outstanding,method,
+    received:totalReceived,
+    change:totalChange,
     paidAt:dateTime(allPayments.at(-1)?.paid_at||session.ended_at||session.started_at),
     business:{name:business.name||'RentalPS',phone:profile.phone||'',address:profile.address||'',
       footer:receipt.footer||'Terima kasih telah bermain.',showPhone:receipt.show_phone!==false,
@@ -430,11 +514,11 @@ export async function updateReservationStatus(id:string,status:ReservationRecord
   if(error)throw error;
 }
 
-export type RevenuePayment={id:string;order_id:string|null;method:string;amount:number;paid_at:string;source:'rental'|'fnb'};
+export type RevenuePayment={id:string;order_id:string|null;invoice_id:string;method:string;amount:number;paid_at:string;source:'rental'|'fnb'};
 export async function loadRevenuePayments(since:string):Promise<RevenuePayment[]>{
   if(!isSupabaseConfigured){
     return demoHistory.filter(r=>r.paid_amount>0&&new Date(r.ended_at??r.started_at)>=new Date(since)).map(r=>({
-      id:r.id,order_id:r.id,method:r.payment_method,amount:r.paid_amount,
+      id:r.id,order_id:r.id,invoice_id:r.id,method:r.payment_method,amount:r.paid_amount,
       paid_at:r.ended_at??r.started_at,source:'rental' as const
     }));
   }
@@ -442,13 +526,13 @@ export async function loadRevenuePayments(since:string):Promise<RevenuePayment[]
   const client=requireSupabase();
   const [rentalResult,fnbResult]=await Promise.all([
     client.from('payments').select('id,session_id,method,amount,paid_at').eq('business_id',businessId).gte('paid_at',since).order('paid_at',{ascending:true}).limit(5000),
-    client.from('fb_payments').select('id,order_id,method,amount,paid_at').eq('business_id',businessId).gte('paid_at',since).order('paid_at',{ascending:true}).limit(5000)
+    client.from('fb_payments').select('id,order_id,method,amount,paid_at,fb_orders(session_id)').eq('business_id',businessId).gte('paid_at',since).order('paid_at',{ascending:true}).limit(5000)
   ]);
   if(rentalResult.error)throw rentalResult.error;
   if(fnbResult.error)throw fnbResult.error;
   return [
-    ...(rentalResult.data??[]).map((p:any)=>({id:p.id,order_id:p.session_id??null,method:p.method,amount:Number(p.amount||0),paid_at:p.paid_at,source:'rental' as const})),
-    ...(fnbResult.data??[]).map((p:any)=>({id:p.id,order_id:p.order_id??null,method:p.method,amount:Number(p.amount||0),paid_at:p.paid_at,source:'fnb' as const}))
+    ...(rentalResult.data??[]).map((p:any)=>({id:p.id,order_id:p.session_id??null,invoice_id:String(p.session_id),method:p.method,amount:Number(p.amount||0),paid_at:p.paid_at,source:'rental' as const})),
+    ...(fnbResult.data??[]).map((p:any)=>({id:p.id,order_id:p.order_id??null,invoice_id:p.fb_orders?.session_id?String(p.fb_orders.session_id):'fnb:'+String(p.order_id),method:p.method,amount:Number(p.amount||0),paid_at:p.paid_at,source:'fnb' as const}))
   ].sort((a,b)=>new Date(a.paid_at).getTime()-new Date(b.paid_at).getTime());
 }
 
