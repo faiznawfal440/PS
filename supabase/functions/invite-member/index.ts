@@ -36,10 +36,16 @@ Deno.serve(async (req: Request) => {
       .select("user_id,role,is_active,business_member_profiles(email,display_name)")
       .eq("business_id", businessId).order("created_at", { ascending: true });
     if (error) return json({ error: "Gagal membaca daftar pengguna." }, 500);
-    const members = (data ?? []).map((m: any) => ({
-      user_id: m.user_id, role: m.role, is_active: m.is_active,
-      email: m.business_member_profiles?.[0]?.email ?? "",
-      display_name: m.business_member_profiles?.[0]?.display_name ?? ""
+    const members = await Promise.all((data ?? []).map(async (m: any) => {
+      const { data: authData } = await adminClient.auth.admin.getUserById(m.user_id);
+      return {
+        user_id: m.user_id,
+        role: m.role,
+        is_active: m.is_active,
+        email: m.business_member_profiles?.[0]?.email ?? authData.user?.email ?? "",
+        display_name: m.business_member_profiles?.[0]?.display_name ?? "",
+        email_confirmed: Boolean(authData.user?.email_confirmed_at),
+      };
     }));
     return json({ members });
   }
