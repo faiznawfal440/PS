@@ -1,20 +1,124 @@
-# PS Supabase PS Manager — RentalPS Manager
+# 🎮 RentalPS Manager
 
-React 19 + TypeScript + Vite dashboard, Supabase Auth/Postgres/RLS/Realtime and Vercel production deployment.
+<p align="center">
+  <strong>Dashboard operasional rental PlayStation — dari sesi bermain hingga laporan kas.</strong><br />
+  Kelola unit, pelanggan, transaksi, F&amp;B, reservasi, dan shift kasir dalam satu aplikasi.
+</p>
 
-## Local development
+<p align="center">
+  <img alt="React" src="https://img.shields.io/badge/React-19-149eca?logo=react&logoColor=white" />
+  <img alt="TypeScript" src="https://img.shields.io/badge/TypeScript-5-3178c6?logo=typescript&logoColor=white" />
+  <img alt="Vite" src="https://img.shields.io/badge/Vite-8-646cff?logo=vite&logoColor=white" />
+  <img alt="Supabase" src="https://img.shields.io/badge/Supabase-Auth%20%7C%20Postgres%20%7C%20Realtime-3fcf8e?logo=supabase&logoColor=white" />
+</p>
 
-```bash
-npm install
-cp .env.example .env.local
-npm run dev
-```
+---
 
-Set `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` from Supabase Project Settings → API. The publishable/anon key is intended for browser use under correctly configured RLS. Never expose the Supabase secret/service-role key with a `VITE_` prefix.
+## ✨ Tentang aplikasi
 
-## Database setup
+**RentalPS Manager** adalah dashboard untuk membantu operasional rental PlayStation sehari-hari. Aplikasi menyediakan pemantauan status unit, pengelolaan sesi dan tarif, pencatatan pembayaran, penjualan makanan dan minuman (F&B), reservasi, rekonsiliasi kasir, serta ekspor laporan.
 
-Apply migrations in numeric order:
+Aplikasi dapat dijalankan dalam **mode demo** atau dihubungkan ke **Supabase** untuk autentikasi dan data operasional bersama.
+
+## 🚀 Fitur utama
+
+### 🕹️ Operasional rental
+- Dashboard status unit dengan pembaruan real-time melalui Supabase Realtime.
+- Mulai, perpanjang, jeda, lanjutkan, dan akhiri sesi rental.
+- Mendukung tarif paket, per jam, dan *open billing*.
+- Penanganan waktu overtime, toleransi, dan pembulatan sesuai aturan tarif.
+- Pengelolaan unit, tipe konsol, ruangan, harga dasar, dan status maintenance.
+- Riwayat sesi, detail pembayaran, saldo terutang, dan cetak struk.
+
+### 🧾 Checkout dan pembayaran terpadu
+- Pratinjau total checkout dihitung di database sebelum transaksi diselesaikan.
+- Satu checkout dapat mencakup biaya rental dan pesanan F&B yang terhubung ke sesi.
+- Rincian invoice menampilkan item, total pembayaran, kembalian, dan saldo yang masih terutang.
+- Mendukung metode tunai, transfer, QRIS sebagai metode pencatatan, dan metode lain.
+- Pembayaran sebagian dan pelunasan saldo setelah checkout didukung.
+- Kunci idempotensi pada operasi pembayaran membantu mencegah transaksi atau catatan pembayaran ganda saat permintaan dicoba ulang.
+
+### 🍟 Modul F&B
+- Katalog produk dengan pengelolaan stok.
+- Buat pesanan, catat pembayaran penuh atau sebagian, dan batalkan pesanan melalui operasi database yang diaudit.
+- Pesanan F&B baru dapat otomatis ditautkan ke sesi rental aktif untuk unit yang dipilih.
+- Pesanan yang terhubung ikut diperhitungkan dalam checkout dan struk rental.
+- Pesanan F&B mandiri tetap masuk laporan tanpa menghitung pesanan tertaut dua kali.
+
+### 💵 Shift kasir dan rekonsiliasi
+- Buka shift dengan mencatat saldo awal laci kas.
+- Pantau saldo tunai yang diharapkan berdasarkan pembayaran tunai rental dan F&B yang tercatat untuk akun kasir selama shift.
+- Tutup shift dengan memasukkan uang fisik; aplikasi menghitung selisih terhadap kas yang diharapkan.
+- Pembukaan dan penutupan shift dicatat pada audit trail.
+- Satu kasir hanya dapat memiliki satu shift terbuka per usaha pada satu waktu.
+
+### 📅 Reservasi dan pelanggan
+- Catat reservasi beserta informasi pelanggan dan waktu.
+- Perlindungan bentrok waktu untuk reservasi yang dikonfirmasi.
+- Tampilan riwayat membantu meninjau sesi aktif, selesai, dijeda, overtime, atau dibatalkan.
+
+### 📊 Laporan dan pengaturan usaha
+- Laporan dapat difilter berdasarkan periode.
+- Ekspor laporan ke **CSV**, **Excel-compatible SpreadsheetML (.xls)**, dan **PDF**.
+- Pelaporan membedakan nilai tagihan, pembayaran yang diterima, dan piutang.
+- Log audit untuk membantu menelusuri aktivitas operasional penting.
+- Pengaturan metode pembayaran, lebar kertas struk, header/footer struk, serta tema terang/gelap.
+
+### 🔐 Pengguna dan keamanan
+- Login email/password, alur penerimaan undangan, pengaturan kata sandi, dan pemulihan kata sandi.
+- Navigasi berdasarkan peran: **Pemilik**, **Admin**, dan **Operator**.
+- Pengundangan anggota dilakukan melalui Supabase Edge Function.
+- Data operasional dibatasi berdasarkan usaha melalui konteks bisnis, kebijakan Row Level Security (RLS), dan pemeriksaan akses pada operasi database.
+- Langganan real-time difilter ke konteks usaha yang aktif.
+
+## 🧰 Teknologi
+
+| Area | Teknologi |
+| --- | --- |
+| Frontend | React 19, TypeScript, Vite |
+| Backend dan database | Supabase Postgres, Auth, RLS, Realtime, Edge Functions |
+| Pengujian | Vitest, TypeScript typecheck, Playwright |
+| Ekspor laporan | CSV, SpreadsheetML kompatibel Excel, PDF melalui jsPDF |
+| Deployment | Vercel |
+
+## ⚡ Menjalankan secara lokal
+
+**Prasyarat:** Node.js `>=22.12.0` dan npm.
+
+1. Clone repositori dan masuk ke direktori proyek:
+
+   ```bash
+   git clone https://github.com/faiznawfal440/PS.git
+   cd PS
+   ```
+
+2. Instal dependensi dan buat berkas environment lokal:
+
+   ```bash
+   npm install
+   cp .env.example .env.local
+   ```
+
+3. Isi `.env.local` dengan URL dan publishable/anon key dari **Supabase → Project Settings → API**:
+
+   ```dotenv
+   VITE_SUPABASE_URL=https://YOUR_PROJECT_REF.supabase.co
+   VITE_SUPABASE_ANON_KEY=YOUR_SUPABASE_PUBLISHABLE_OR_ANON_KEY
+   ```
+
+4. Jalankan server pengembangan:
+
+   ```bash
+   npm run dev
+   ```
+
+Jika konfigurasi Supabase belum tersedia, aplikasi menggunakan data demo untuk membantu meninjau UI. Data demo tidak menggantikan penyimpanan database bersama.
+
+> **Keamanan:** hanya gunakan publishable/anon key yang memang ditujukan untuk frontend. Jangan pernah menambahkan Supabase service-role/secret key ke variabel yang diawali `VITE_` atau ke kode browser.
+
+## 🗄️ Menyiapkan database Supabase
+
+Jalankan migrasi dalam urutan berikut pada proyek database baru setelah memeriksa skema target:
 
 1. `supabase/migrations/202610130001_initial_rentalps.sql`
 2. `supabase/migrations/202610130002_management.sql`
@@ -25,46 +129,38 @@ Apply migrations in numeric order:
 7. `supabase/migrations/202610130007_rls_policy_cleanup.sql`
 8. `supabase/migrations/202610140008_fnb_session_link_unified_checkout.sql`
 9. `supabase/migrations/202610140009_checkout_integrity_and_idempotency.sql`
+10. `supabase/migrations/202610140010_cashier_shift_reconciliation.sql`
 
-Migrations are made repeatable where practical: tables/indexes use `IF NOT EXISTS`, functions use `CREATE OR REPLACE`, policy creation is guarded by `DROP POLICY IF EXISTS`, triggers are recreated in a controlled way, constraints check for duplicates, and catalogue seeds use `ON CONFLICT`. Always apply migrations in numeric order. Do not run an older migration after a newer one, because older function/policy definitions can replace newer hardening. `IF NOT EXISTS` also does not repair missing columns or incompatible types in an existing table.
+Migrasi 008 menambahkan pengaitan F&B dengan sesi dan checkout gabungan; migrasi 009 memperkuat pratinjau checkout, penyelesaian saldo, dan idempotensi pembayaran; migrasi 010 menambahkan pencatatan shift kasir dan rekonsiliasi kas.
 
-Migration 005 fixes payment settlement. Migration 006 fixes open-billing calculation when a session is paused, ensures reservations can only reference a unit in the same business, removes anonymous execution on privileged RPCs, and adds indexes for previously unindexed foreign keys. Migration 007 removes redundant permissive RLS policies and moves `btree_gist` out of the exposed `public` schema. Migration 008 links new F&B orders to an active rental session when the operator selects that unit, backfills only unambiguous historical links, enables Realtime for F&B orders/payments/products, and settles linked rental+F&B balances at one checkout. Migration 009 adds a single server-side rental price preview, combined settlement of post-checkout balances, durable request-idempotency for checkout/payment RPCs, and accurate one-time recording of tender and change across split rental/F&B payments.
+**Untuk database yang sudah berjalan:** periksa skema dan riwayat migrasi terlebih dahulu, lalu terapkan hanya migrasi yang belum dijalankan. Jangan mengulang migrasi baseline pada database berisi data tanpa memastikan dampaknya. Buat backup sebelum perubahan pada lingkungan produksi dan verifikasi hasil migrasi sesudahnya.
 
-**For an existing Supabase database:** check migration history first and apply only pending migrations. The connected PS project was inspected during this task: the initial schema is present, but its original baseline migration is not separately recorded in migration history; migrations for management, operational hardening, permissions/F&B seed, and payment settlement were recorded. Migrations 006 and 007 were applied to that project and their database effects were verified. Do not run baseline migration 001 or all SQL files from the beginning against that existing project. For another project, reconcile its actual schema/history first and take a backup before production changes.
+Untuk email undangan dan pemulihan kata sandi, atur **Supabase Authentication → URL Configuration**. Sesuaikan Site URL dan Redirect URL allowlist dengan domain deployment yang digunakan. Edge Function `invite-member` memerlukan konfigurasi dan secret sisi server; jangan letakkan service-role key pada environment frontend.
 
-For invitation/password recovery emails, set Supabase Authentication → URL Configuration:
-- Site URL: `https://ps-nawfal5.vercel.app`
-- Redirect URL allowlist: `https://ps-nawfal5.vercel.app/**`
+## ✅ Pemeriksaan kualitas
 
-The Edge Function `invite-member` must be deployed with JWT verification enabled. It uses the server-only service role key inside the Edge Function; never put that secret into frontend env variables.
-
-## Implemented modules
-
-- Role-aware navigation (owner/admin/operator), Supabase email/password login, invitation acceptance password setup and password recovery.
-- Live rental dashboard, start/extend/pause/resume/end session, receipt/thermal print and session history with settlement of outstanding balances.
-- Unit/rate CRUD, user invitation and role status through the Edge Function.
-- Reports filtered to a selected period, CSV, Excel-compatible SpreadsheetML (.xls) and PDF exports. Reports distinguish billed value, payments applied to the till, and receivables; combined checkout splits count as one invoice, and standalone F&B orders are included without double-counting linked orders.
-- F&B product catalogue, stock-tracked orders, payment/partial payment and cancellation via audited RPC; when a unit has an active rental, new F&B orders are linked to that session automatically.
-- One rental checkout can settle the rental and linked unpaid F&B orders, and the combined receipt includes rental, item-level F&B lines, payment totals, outstanding balance, and the business receipt settings. A checkout preview is calculated by the database, and payment calls accept idempotency keys so safe retries do not create duplicate ledger rows.
-- Business-scoped Realtime subscriptions cover rental sessions/payments and F&B orders/payments/products. Settings tabs for payment methods, receipt paper width, receipt header/footer, and light/dark appearance are interactive and persisted in business settings.
-- Reservations with customer details and time-overlap protection for confirmed bookings.
-- Audit trail and business settings.
-
-## Quality checks
+Jalankan perintah berikut sebelum mengirim perubahan:
 
 ```bash
 npm run typecheck
 npm test
 npm run build
+npm run test:e2e
 npm audit
 ```
 
-Billing helpers have 9 automated tests covering exact payment, change, partial settlement, overtime grace/rounding and open billing. Database migration tests add static regression checks for guarded DDL, paused open billing, tenant-safe reservation policies, F&B/session linkage, combined balance settlement, idempotency, Realtime publication, and settings controls; accounting unit tests cover partial/F&B payments, component balances, and change. These tests do not execute SQL against PostgreSQL. An actual end-to-end flow still requires logging in with a real owner account and verifying invitation email delivery and printer hardware.
+Tes unit/regresi yang tersedia mencakup helper penagihan, perhitungan pembayaran, perubahan, idempotensi, aturan database penting, serta beberapa kontrol pengaturan. Tes statis migrasi **tidak** menjalankan SQL terhadap PostgreSQL. Uji alur nyata dengan akun yang terautentikasi tetap diperlukan untuk memvalidasi undangan email, transaksi end-to-end, dan printer struk fisik.
 
-Until the UI includes a business switcher, an account with multiple active business memberships uses the oldest active membership as its deterministic business context. Dashboard/rate queries and realtime subscriptions are scoped to that context instead of mixing records or change notifications from multiple businesses.
+## ℹ️ Catatan dan batasan
 
-## Known limitations
+- Ekspor `.xls` menggunakan SpreadsheetML yang kompatibel dengan Excel; proyek menghindari dependensi `xlsx` yang belum diperbarui.
+- QRIS tersedia sebagai **metode pencatatan pembayaran**; integrasi gateway dan verifikasi pembayaran QRIS otomatis belum tersedia.
+- Rekonsiliasi shift didasarkan pada transaksi tunai yang tercatat. Catatan pengeluaran kas pada shift belum mengurangi saldo kas yang diharapkan secara otomatis.
+- Belum ada pemilih usaha (*business switcher*). Jika satu akun memiliki beberapa keanggotaan usaha aktif, aplikasi memilih keanggotaan aktif tertua sebagai konteks deterministik.
+- Pengujian end-to-end transaksi pada akun nyata dan verifikasi printer thermal fisik masih perlu dilakukan.
 
-- Excel export uses Excel-compatible SpreadsheetML with an `.xls` extension to avoid the unpatched npm `xlsx` package advisories.
-- QRIS is recorded as a payment method; automatic QRIS gateway/payment verification is not integrated.
-- Full transaction E2E tests with a real authenticated account and physical thermal printer still need to be performed.
+---
+
+<p align="center">
+  Dibuat untuk membantu operasional rental PlayStation lebih rapi, transparan, dan mudah direkonsiliasi. 🎮
+</p>
