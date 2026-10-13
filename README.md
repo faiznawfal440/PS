@@ -14,14 +14,21 @@ Set `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` from Supabase Project Setti
 
 ## Database setup
 
-Apply migrations in order:
+Apply migrations in numeric order:
 
 1. `supabase/migrations/202610130001_initial_rentalps.sql`
 2. `supabase/migrations/202610130002_management.sql`
 3. `supabase/migrations/202610130003_operational_hardening.sql`
 4. `supabase/migrations/202610130004_permissions_and_fnb_seed.sql`
+5. `supabase/migrations/202610130005_fix_rental_payment_settlement.sql`
+6. `supabase/migrations/202610130006_database_hardening_idempotency.sql`
+7. `supabase/migrations/202610130007_rls_policy_cleanup.sql`
 
-The active Supabase project already has the operational hardening and F&B/role seed migrations applied. It contains 6 active rental units, 12 active rate plans and 6 initial F&B products. Adjust sample rates, product prices and inventory to the real business.
+Migrations are made repeatable where practical: tables/indexes use `IF NOT EXISTS`, functions use `CREATE OR REPLACE`, policy creation is guarded by `DROP POLICY IF EXISTS`, triggers are recreated in a controlled way, constraints check for duplicates, and catalogue seeds use `ON CONFLICT`. Always apply migrations in numeric order. Do not run an older migration after a newer one, because older function/policy definitions can replace newer hardening. `IF NOT EXISTS` also does not repair missing columns or incompatible types in an existing table.
+
+Migration 005 fixes payment settlement. Migration 006 fixes open-billing calculation when a session is paused, ensures reservations can only reference a unit in the same business, removes anonymous execution on privileged RPCs, and adds indexes for previously unindexed foreign keys. Migration 007 removes redundant permissive RLS policies and moves `btree_gist` out of the exposed `public` schema.
+
+**For an existing Supabase database:** check migration history first and apply only pending migrations. The connected PS project was inspected during this task: the initial schema is present, but its original baseline migration is not separately recorded in migration history; migrations for management, operational hardening, permissions/F&B seed, and payment settlement were recorded. Migrations 006 and 007 were applied to that project and their database effects were verified. Do not run baseline migration 001 or all SQL files from the beginning against that existing project. For another project, reconcile its actual schema/history first and take a backup before production changes.
 
 For invitation/password recovery emails, set Supabase Authentication → URL Configuration:
 - Site URL: `https://ps-nawfal5.vercel.app`
@@ -48,7 +55,9 @@ npm run build
 npm audit
 ```
 
-Billing helpers have 9 automated tests covering exact payment, change, partial settlement, overtime grace/rounding and open billing. An actual end-to-end flow still requires logging in with a real owner account and verifying invitation email delivery and printer hardware.
+Billing helpers have 9 automated tests covering exact payment, change, partial settlement, overtime grace/rounding and open billing. Database migration tests add static regression checks for guarded DDL, paused open billing, and tenant-safe reservation policies; they do not execute SQL against PostgreSQL. An actual end-to-end flow still requires logging in with a real owner account and verifying invitation email delivery and printer hardware.
+
+Until the UI includes a business switcher, an account with multiple active business memberships uses the oldest active membership as its deterministic business context. Dashboard/rate queries and realtime subscriptions are scoped to that context instead of mixing records or change notifications from multiple businesses.
 
 ## Known limitations
 
