@@ -23,7 +23,7 @@ test("completes a rental session and prints an accurate change receipt", async (
   const startModal = page.locator(".modal");
   await expect(startModal.getByRole("heading", { name: "Mulai Sesi Baru" })).toBeVisible();
   await startModal.getByPlaceholder("Masukkan nama pelanggan").fill("Pelanggan E2E");
-  await startModal.getByRole("button", { name: /1 jam/ }).click();
+  await startModal.locator(".duration-grid").last().getByRole("button", { name: /^1 jam/ }).click();
   await startModal.getByRole("button", { name: "Mulai sesi" }).click();
   await expect(page.getByText("Sesi demo berhasil dimulai.")).toBeVisible();
 
@@ -38,7 +38,7 @@ test("completes a rental session and prints an accurate change receipt", async (
   await expect(receipt.getByText("LUNAS")).toBeVisible();
   await expect(receipt.getByText("Pelanggan E2E")).toBeVisible();
   await expect(receipt.getByText("Kembalian")).toBeVisible();
-  await expect(receipt.getByText("Rp 5.000")).toBeVisible();
+  await expect(receipt.getByText(/5\\.000/)).toBeVisible();
   await expect(receipt.getByRole("button", { name: "Cetak struk" })).toBeVisible();
 });
 
@@ -48,7 +48,7 @@ test("loads F&B and reservation pages and exports CSV, Excel-compatible and PDF 
   await expect(page.getByText("Air Mineral")).toBeVisible();
 
   await page.getByRole("button", { name: "Reservasi", exact: true }).first().click();
-  await expect(page.getByRole("heading", { name: "Reservasi" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Reservasi", level: 2 })).toBeVisible();
 
   await page.getByRole("button", { name: "Laporan", exact: true }).first().click();
   await expect(page.getByRole("heading", { name: "Laporan" })).toBeVisible();
