@@ -5,14 +5,19 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "npm run typecheck && vite build",
     "preview": "vite preview",
-    "format": "oxfmt"
+    "format": "oxfmt",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
-    "@supabase/supabase-js": "^2.57.0"
+    "@supabase/supabase-js": "^2.57.0",
+    "xlsx": "^0.18.5",
+    "jspdf": "^3.0.2",
+    "jspdf-autotable": "^5.0.2"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
@@ -23,7 +28,8 @@
     "@tailwindcss/vite": "^4.0.0",
     "oxfmt": "^0.2.0",
     "typescript": "^5.7.0",
-    "vite": "^8.0.5"
+    "vite": "^8.0.5",
+    "vitest": "^3.2.4"
   },
   "description": "RentalPS Manager — dashboard rental PlayStation dengan Supabase"
 }
