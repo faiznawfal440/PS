@@ -71,7 +71,7 @@ describe("Supabase migration safety", () => {
 
   it("links F&B orders to rental sessions, combines checkout totals, and enables live updates", () => {
     const sql = readMigration("202610140008_fnb_session_link_unified_checkout.sql");
-    expect(sql).toContain("where s.business_id = o.business_id");
+    expect(sql).toContain("on s.business_id = o.business_id");
     expect(sql).toContain("count(*) over (partition by o.id) as candidate_count");
     expect(sql).toContain("if p_session_id is null and p_unit_id is not null");
     expect(sql).toContain("and status in ('active', 'paused', 'overtime')");
