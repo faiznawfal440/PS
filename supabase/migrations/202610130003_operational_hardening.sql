@@ -135,7 +135,7 @@ begin
     if qty<1 or qty>999 then raise exception 'INVALID_QUANTITY'; end if;
     select * into product from public.fb_products where id=(item->>'product_id')::uuid and business_id=bid and is_active for update;
     if not found then raise exception 'PRODUCT_NOT_FOUND_OR_INACTIVE'; end if;
-    if product.stock_quantity is not null and product.stock_quantity<qty then raise exception 'INSUFFICIENT_STOCK: '||product.name; end if;
+    if product.stock_quantity is not null and product.stock_quantity<qty then raise exception using message = 'INSUFFICIENT_STOCK: ' || product.name; end if;
     line:=product.price*qty;
     insert into public.fb_order_items(order_id,product_id,product_name,quantity,unit_price,line_total) values(order_id,product.id,product.name,qty,product.price,line);
     if product.stock_quantity is not null then update public.fb_products set stock_quantity=stock_quantity-qty,updated_at=now() where id=product.id; end if;
