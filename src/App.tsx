@@ -1,4 +1,14 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
+
+const authParamsAtEntry = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+const authTypeAtEntry = authParamsAtEntry.get("type") || new URLSearchParams(window.location.search).get("type");
+const authErrorCodeAtEntry = authParamsAtEntry.get("error_code") || new URLSearchParams(window.location.search).get("error_code");
+const authErrorDescriptionAtEntry = authParamsAtEntry.get("error_description") || new URLSearchParams(window.location.search).get("error_description");
+const authLinkErrorAtEntry = authErrorCodeAtEntry === "otp_expired"
+  ? "Tautan undangan sudah kedaluwarsa atau sudah digunakan. Minta Pemilik mengirim undangan baru, lalu buka tautan terbaru."
+  : authErrorCodeAtEntry
+    ? (authErrorDescriptionAtEntry ? decodeURIComponent(authErrorDescriptionAtEntry.replace(/\+/g, " ")) : "Tautan autentikasi tidak valid. Minta undangan baru dari Pemilik.")
+    : "";
 import { demoUnits, loadDashboardUnits, loadRatePlans, subscribeToRentalChanges, startSession, extendSession, pauseSession, resumeSession, endSession, setUnitMaintenance, formatIDR, formatTimer, type RatePlan, type UnitView } from "./lib/rentalApi";
 import { isSupabaseConfigured, supabase, supabaseConfigError } from "./lib/supabase";
 import { AuditPageV2, HistoryPageV2, ManagePageV2, ReportsPageV2, SettingsPageV2 } from "./OperationalPages";
@@ -265,7 +275,7 @@ function ModalShell({ type, unit, ratePlans, close, onStart, onExtend, onEnd, on
 function Login({ onLogin, dark, setDark }: { onLogin: (email: string, password: string) => Promise<void>; dark: boolean; setDark:(v:boolean)=>void }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [error, setError] = useState("");
+  const [error, setError] = useState(authLinkErrorAtEntry);
   const [busy, setBusy] = useState(false);
   const submit = async () => {
     setBusy(true); setError("");
@@ -309,8 +319,45 @@ function ReceiptModal({receipt,close}:{receipt:{id:string;unit:string;customer:s
   </div>;
 }
 
+function SetPasswordScreen({dark,onComplete}:{dark:boolean;onComplete:()=>void}) {
+  const [password,setPassword]=useState("");
+  const [confirmPassword,setConfirmPassword]=useState("");
+  const [error,setError]=useState("");
+  const [busy,setBusy]=useState(false);
+  const [done,setDone]=useState(false);
+  const submit=async()=>{
+    setError("");
+    if(password.length<8){setError("Password minimal 8 karakter.");return;}
+    if(password!==confirmPassword){setError("Konfirmasi password belum sama.");return;}
+    if(!supabase){setError("Koneksi Supabase belum tersedia.");return;}
+    setBusy(true);
+    try{
+      const {error:authError}=await supabase.auth.updateUser({password});
+      if(authError)throw authError;
+      window.history.replaceState({},document.title,window.location.pathname);
+      setDone(true);
+    }catch(e){setError(e instanceof Error?e.message:"Password belum bisa disimpan. Minta undangan baru jika tautan sudah kedaluwarsa.");}
+    finally{setBusy(false);}
+  };
+  return <main className={"set-password-page"+(dark?" dark":"")}><div className="set-password-card">
+    <span className="set-password-logo"><Icon name="gamepad-2" size={24}/></span>
+    {done?<><h1>Akun siap digunakan</h1><p>Password sudah dibuat. Sekarang kamu bisa masuk ke RentalPS Manager.</p><Button block onClick={onComplete}>Lanjut ke dashboard <Icon name="arrow" size={17}/></Button></>:<>
+      <span className="live-pill"><i/> UNDANGAN RENTALPS</span><h1>Buat password akun</h1>
+      <p>Atur password pribadi sebelum mulai menggunakan RentalPS Manager. Jangan gunakan password Pemilik.</p>
+      <div className="form-stack">
+        <label><span>Password baru</span><input type="password" autoComplete="new-password" minLength={8} value={password} onChange={e=>setPassword(e.target.value)} placeholder="Minimal 8 karakter"/></label>
+        <label><span>Ulangi password</span><input type="password" autoComplete="new-password" minLength={8} value={confirmPassword} onChange={e=>setConfirmPassword(e.target.value)} placeholder="Ketik ulang password"/></label>
+        {error&&<p className="form-error" role="alert">{error}</p>}
+        <Button block disabled={busy} onClick={()=>void submit()}>{busy?"Menyimpan password…":"Simpan password"}</Button>
+      </div>
+      <small>Jika tautan dari email lama tidak bisa digunakan, minta Pemilik mengirim undangan baru.</small>
+    </>}
+  </div></main>;
+}
+
 export default function App() {
   const [loggedIn, setLoggedIn] = useState(!isSupabaseConfigured);
+  const [needsPassword, setNeedsPassword] = useState(authTypeAtEntry === "invite" || authTypeAtEntry === "recovery");
   const [dark, setDark] = useState(false);
   const [page, setPage] = useState<Page>("Dashboard");
   const [modal, setModal] = useState<Modal>(null);
@@ -325,7 +372,7 @@ export default function App() {
   useEffect(() => {
     if (!supabase) return;
     let mounted = true;
-    supabase.auth.getSession().then(({data,error}) => { if (mounted) { if (error) setLoadError(error.message); setLoggedIn(Boolean(data.session)); } });
+    supabase.auth.getSession().then(({data,error}) => { if (mounted) { if (error) setLoadError(error.message); setLoggedIn(Boolean(data.session)); if (data.session && (authTypeAtEntry === "invite" || authTypeAtEntry === "recovery")) setNeedsPassword(true); } });
     const {data: listener} = supabase.auth.onAuthStateChange((_event,session) => { if (mounted) setLoggedIn(Boolean(session)); });
     return () => { mounted = false; listener.subscription.unsubscribe(); };
   }, []);
@@ -424,6 +471,7 @@ export default function App() {
     else setLoggedIn(true);
   };
   if (!loggedIn) return <div className={dark ? "app dark" : "app"}><Login onLogin={handleLogin} dark={dark} setDark={setDark} /></div>;
+  if (needsPassword) return <div className={dark ? "app dark" : "app"}><SetPasswordScreen dark={dark} onComplete={() => { setNeedsPassword(false); setPage("Dashboard"); }} /></div>;
   const content = detail ? <DetailPage back={()=>setDetail(false)} /> : page === "Dashboard" ? <Dashboard units={liveUnits} open={openModal} onResume={onResume} onMaintenance={onMaintenance} mode={mode} /> : page === "Riwayat" ? <HistoryPageV2 /> : page === "Laporan" ? <ReportsPageV2 /> : page === "Log Audit" ? <AuditPageV2 /> : page === "Pengaturan" ? <SettingsPageV2 dark={dark} setDark={setDark} /> : <ManagePageV2 type={page as "Unit"|"Tarif"|"Pengguna"} />;
   return <div className={dark ? "app dark" : "app"}><Sidebar page={page} setPage={(p)=>{setPage(p);setDetail(false)}} onLogout={async ()=>{if (supabase) await supabase.auth.signOut();setLoggedIn(false);}} /><main className="main"><Topbar page={detail ? "Riwayat" : page} dark={dark} setDark={setDark} />{(loadError || notice) && <div className={loadError ? "app-alert error" : "app-alert"} role="status">{loadError || notice}<button onClick={()=>{setLoadError("");setNotice("")}} aria-label="Tutup notifikasi">×</button></div>}{content}</main><BottomNav page={page} setPage={(p)=>{setPage(p);setDetail(false)}} />{modal && selectedUnit && <ModalShell type={modal} unit={selectedUnit} ratePlans={ratePlans} close={()=>setModal(null)} onStart={onStart} onExtend={onExtend} onEnd={onEnd} onPause={onPause} />}{receipt && <ReceiptModal receipt={receipt} close={()=>setReceipt(null)} />}</div>;
 }
