@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import {
-  cancelFbOrder, createFbOrder, createReservation, formatIDR, loadFbOrders,
+  cancelFbOrder, createFbOrder, createReservation, createPaymentRequestKey, formatIDR, loadFbOrders,
   loadFbProducts, loadManagedUnits, loadReservations, payFbOrder, saveFbProduct, subscribeToFnbChanges,
   updateReservationStatus, type FbOrder, type FbProduct, type ManagedUnit, type PaymentMethod,
   type ReservationRecord,
@@ -32,6 +32,7 @@ export function FnbPageV2({role,paymentMethods,activeRentalUnitIds=[],onEndLinke
   const [productDrawer,setProductDrawer]=useState(false);
   const [productForm,setProductForm]=useState({code:"",name:"",category:"Minuman",price:"5000",stock:""});
   const [paymentOrder,setPaymentOrder]=useState<FbOrder|null>(null);
+  const [paymentRequestKey,setPaymentRequestKey]=useState(createPaymentRequestKey);
   const [received,setReceived]=useState("");
   const [method,setMethod]=useState<PaymentMethod>(paymentMethods[0]||"cash");
   const canManage=role==="owner"||role==="admin";
@@ -76,11 +77,11 @@ export function FnbPageV2({role,paymentMethods,activeRentalUnitIds=[],onEndLinke
   const settle=async(e:FormEvent)=>{
     e.preventDefault();if(!paymentOrder)return;setBusy(true);setError("");setNotice("");
     try{
-      const result=await payFbOrder({orderId:paymentOrder.id,method,receivedAmount:Number(received)});
+      const result=await payFbOrder({orderId:paymentOrder.id,method,receivedAmount:Number(received),idempotencyKey:paymentRequestKey});
       if(result.error)throw result.error;
       const data=result.data as {outstanding?:number;change?:number;applied?:number};
       setNotice("Pembayaran diterima. Dibukukan "+formatIDR(Number(data.applied||0))+"; kembalian "+formatIDR(Number(data.change||0))+". Sisa "+formatIDR(Number(data.outstanding||0))+".");
-      setPaymentOrder(null);setReceived("");await refresh();
+      setPaymentOrder(null);setReceived("");setPaymentRequestKey(createPaymentRequestKey());await refresh();
     }catch(e){setError(e instanceof Error?e.message:"Pembayaran gagal.");}
     finally{setBusy(false);}
   };
@@ -118,8 +119,8 @@ export function FnbPageV2({role,paymentMethods,activeRentalUnitIds=[],onEndLinke
       </aside>
     </div>
     <section className="panel table-wrap fnb-orders"><div className="table-heading"><div><h3>Daftar pesanan</h3><p>Pesanan dan status pelunasan.</p></div><button className="btn btn-secondary" onClick={()=>void refresh()}>Muat ulang</button></div>
-      <table><thead><tr>{["No. pesanan","Pelanggan/unit","Item","Total","Terbayar","Status","Aksi"].map(x=><th key={x}>{x}</th>)}</tr></thead><tbody>
-        {orders.length===0?<tr><td colSpan={7} className="empty-cell">Belum ada pesanan tersimpan.</td></tr>:orders.map(order=><tr key={order.id}><td className="session-id">{order.order_no}</td><td>{order.customer_name||"Pelanggan umum"}{order.unit_name&&<small className="table-subtext">{order.unit_name}</small>}</td><td>{order.items.reduce((n,i)=>n+i.quantity,0)} item</td><td>{formatIDR(order.total)}</td><td>{formatIDR(order.paid_amount)}</td><td><span className={"table-status "+order.payment_status}>{order.status==="cancelled"?"Batal":order.payment_status==="paid"?"Lunas":order.payment_status==="partial"?"Sebagian":"Belum lunas"}</span></td><td className="management-actions">{order.status==="open"&&<><button className="btn btn-secondary" onClick={()=>{setPaymentOrder(order);setReceived(String(Math.max(0,order.total-order.paid_amount)));}}>Bayar F&B</button>{order.paid_amount===0&&<button className="btn btn-ghost" onClick={()=>void cancel(order)}>Batalkan</button>}</>}{order.status!=="cancelled"&&order.unit_id&&activeRentalUnitIds.includes(order.unit_id)&&onEndLinkedRental&&<button className="btn btn-primary" onClick={()=>onEndLinkedRental(order.unit_id!)}>Akhiri + bayar gabungan</button>}</td></tr>)}
+      <table><thead><tr>{["No. pesanan","Pelanggan/unit","Item","Total","Terbayar","Sisa","Status","Aksi"].map(x=><th key={x}>{x}</th>)}</tr></thead><tbody>
+        {orders.length===0?<tr><td colSpan={8} className="empty-cell">Belum ada pesanan tersimpan.</td></tr>:orders.map(order=><tr key={order.id}><td className="session-id">{order.order_no}</td><td>{order.customer_name||"Pelanggan umum"}{order.unit_name&&<small className="table-subtext">{order.unit_name}</small>}{order.session_id&&<small className="table-subtext">Terhubung ke sesi rental</small>}</td><td>{order.items.reduce((n,i)=>n+i.quantity,0)} item</td><td>{formatIDR(order.total)}</td><td>{formatIDR(order.paid_amount)}</td><td>{formatIDR(Math.max(0,order.total-order.paid_amount))}</td><td><span className={"table-status "+order.payment_status}>{order.status==="cancelled"?"Batal":order.payment_status==="paid"?"Lunas":order.payment_status==="partial"?"Sebagian":"Belum lunas"}</span></td><td className="management-actions">{order.status==="open"&&<><button className="btn btn-secondary" onClick={()=>{setPaymentOrder(order);setPaymentRequestKey(createPaymentRequestKey());setReceived(String(Math.max(0,order.total-order.paid_amount)));}}>Bayar F&B</button>{order.paid_amount===0&&<button className="btn btn-ghost" onClick={()=>void cancel(order)}>Batalkan</button>}</>}{order.status!=="cancelled"&&order.unit_id&&activeRentalUnitIds.includes(order.unit_id)&&onEndLinkedRental&&<button className="btn btn-primary" onClick={()=>onEndLinkedRental(order.unit_id!)}>Akhiri + bayar gabungan</button>}</td></tr>)}
       </tbody></table>
     </section>
     {productDrawer&&<div className="drawer-backdrop" onClick={()=>setProductDrawer(false)}><aside className="drawer" onClick={e=>e.stopPropagation()}><div className="modal-head"><div><span className="eyebrow">KATALOG F&B</span><h2>Tambah produk</h2></div><button className="icon-btn" onClick={()=>setProductDrawer(false)} aria-label="Tutup">×</button></div><form className="form-stack manage-form" onSubmit={submitProduct}><label><span>Kode produk</span><input required maxLength={24} value={productForm.code} onChange={e=>setProductForm(p=>({...p,code:e.target.value.toUpperCase()}))} placeholder="AIR01"/></label><label><span>Nama produk</span><input required maxLength={100} value={productForm.name} onChange={e=>setProductForm(p=>({...p,name:e.target.value}))}/></label><label><span>Kategori</span><select value={productForm.category} onChange={e=>setProductForm(p=>({...p,category:e.target.value}))}>{["Minuman","Makanan","Snack","Aksesoris","Lainnya"].map(x=><option key={x}>{x}</option>)}</select></label><label><span>Harga (Rp)</span><input type="number" min="0" required value={productForm.price} onChange={e=>setProductForm(p=>({...p,price:e.target.value}))}/></label><label><span>Stok</span><input type="number" min="0" value={productForm.stock} onChange={e=>setProductForm(p=>({...p,stock:e.target.value}))} placeholder="Kosongkan untuk tidak melacak stok"/></label>{error&&<p className="form-error">{error}</p>}<div className="drawer-actions"><button type="button" className="btn btn-secondary" onClick={()=>setProductDrawer(false)}>Batal</button><button className="btn btn-primary" disabled={busy}>{busy?"Menyimpan…":"Simpan produk"}</button></div></form></aside></div>}
