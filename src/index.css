@@ -191,3 +191,34 @@ h1,h2,h3,p { margin: 0; }
 .set-password-card .form-stack{margin-top:18px}
 .set-password-card>small{display:block;margin-top:18px;font-size:11px;line-height:1.6;color:#7b8498}
 @media(max-width:480px){.set-password-page{padding:14px}.set-password-card{padding:24px;border-radius:18px}.set-password-card h1{font-size:22px}}
+
+.fnb-layout{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(290px,.8fr);gap:16px;align-items:start}
+.fnb-products,.fnb-cart,.fnb-orders,.reservation-form,.reservation-list{padding:18px}
+.fnb-toolbar,.table-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:14px}
+.fnb-toolbar h3,.table-heading h3,.reservation-form h3,.fnb-cart h3,.table-heading h3{margin:0;font-size:14px}
+.fnb-toolbar p,.table-heading p,.reservation-form p,.fnb-cart p{margin:5px 0 0;color:var(--muted,#667085);font-size:11px;line-height:1.5}
+.stock-chip{padding:5px 9px;border:1px solid var(--border,#e5e7eb);border-radius:999px;color:var(--muted,#64748b);font-size:10px;white-space:nowrap}
+.fnb-product-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-top:12px}
+.fnb-product{display:grid;grid-template-columns:38px minmax(0,1fr);gap:10px;align-items:center;padding:13px;border:1px solid var(--border,#e5e7eb);border-radius:13px;background:var(--surface,#fff)}
+.fnb-product-icon{grid-row:span 2;display:grid;place-items:center;width:38px;height:38px;border-radius:12px;background:#efedff;color:#5b4cc4;font-size:19px}
+.fnb-product-name{display:flex;flex-direction:column;gap:3px;min-width:0}.fnb-product-name b{font-size:12px;overflow-wrap:anywhere}.fnb-product-name small{font-size:10px;color:var(--muted,#64748b)}
+.fnb-product>strong{grid-column:2;font-size:13px;color:var(--text,#172033)}
+.fnb-product-actions{grid-column:2;display:flex;align-items:center;gap:12px}
+.fnb-product-actions button{width:27px;height:27px;border:1px solid var(--border,#d8dce7);border-radius:8px;background:var(--surface,#fff);cursor:pointer;font-weight:700}
+.fnb-product-actions button:disabled{opacity:.35;cursor:not-allowed}.fnb-product-actions b{min-width:10px;text-align:center;font-size:12px}
+.fnb-cart{display:flex;flex-direction:column;gap:14px}.fnb-cart>label,.fnb-payment-modal label{display:flex;flex-direction:column;gap:6px;font-size:11px;color:var(--muted,#64748b)}
+.fnb-cart input,.fnb-cart select,.fnb-payment-modal input,.fnb-payment-modal select,.reservation-form input,.reservation-form select,.reservation-form textarea{padding:10px 11px;border:1px solid var(--border,#d8dce7);border-radius:9px;background:var(--surface,#fff);color:var(--text,#172033);font:inherit}
+.fnb-cart-lines{display:flex;flex-direction:column;gap:10px;min-height:36px;max-height:260px;overflow:auto}
+.fnb-cart-lines>div{display:flex;justify-content:space-between;gap:10px;font-size:11px}.fnb-cart-lines>div span{color:var(--muted,#64748b)}
+.fnb-cart-total{display:flex;align-items:center;justify-content:space-between;border-top:1px solid var(--border,#e5e7eb);padding-top:14px}.fnb-cart-total span{font-size:12px;color:var(--muted,#64748b)}.fnb-cart-total strong{font-size:21px;letter-spacing:-.03em}
+.fnb-orders{margin-top:16px}.table-subtext{display:block;margin-top:4px;color:var(--muted,#667085);font-size:10px}.table-heading{align-items:center}
+.reservation-layout{display:grid;grid-template-columns:minmax(260px,.75fr) minmax(0,1.5fr);gap:16px;align-items:start}
+.reservation-form{display:flex;flex-direction:column;gap:13px}.reservation-form label{display:flex;flex-direction:column;gap:6px;color:var(--muted,#64748b);font-size:11px}
+.reservation-list .table-search{align-items:center}.reservation-list .table-search p{font-size:11px;color:var(--muted,#667085);margin:4px 0 0}.reservation-list table td{min-width:88px}
+.export-actions{display:flex;gap:7px;flex-wrap:wrap}.export-actions .btn{min-width:58px}
+.forgot-password-link{display:block;margin:0 auto;border:0;background:none;color:#5545c5;font-size:12px;font-weight:700;text-decoration:underline;text-underline-offset:3px;cursor:pointer;padding:5px}
+.forgot-password-link:disabled{opacity:.55;cursor:wait}.login-success{border:1px solid #bbf7d0;background:#f0fdf4;color:#166534;border-radius:9px;padding:10px;font-size:11px;line-height:1.5}
+.settlement-button{display:block;margin-top:6px;padding:5px 8px;font-size:10px}
+.table-status.paid{background:#e9f9ef;color:#167044}.table-status.partial{background:#fff6dd;color:#946200}.table-status.unpaid,.table-status.pending{background:#fef3c7;color:#92400e}.table-status.confirmed{background:#e7efff;color:#234eb7}.table-status.checked_in{background:#e6f7ff;color:#0369a1}.table-status.cancelled{background:#fef2f2;color:#b42318}.table-status.completed{background:#e8f7ed;color:#187245}
+@media(max-width:1100px){.fnb-layout,.reservation-layout{grid-template-columns:1fr}.fnb-cart{order:-1}.reservation-form{order:-1}}
+@media(max-width:640px){.fnb-product-grid{grid-template-columns:1fr}.fnb-products,.fnb-cart,.fnb-orders,.reservation-form,.reservation-list{padding:13px}.fnb-toolbar{align-items:center}.export-actions .btn{flex:1}}
