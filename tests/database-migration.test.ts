@@ -34,6 +34,14 @@ describe("Supabase migration safety", () => {
     }
   });
 
+  it("scopes dashboard, rates, maintenance updates, and realtime to one business", () => {
+    const rentalApi = readFileSync(join(process.cwd(), "src", "lib", "rentalApi.ts"), "utf8");
+    expect(rentalApi).toContain(".eq('business_id',businessId).eq('is_active',true)");
+    expect(rentalApi).toContain(".eq('id',id).eq('business_id',businessId).select('id')");
+    expect(rentalApi).toContain("business_id=eq.${businessId}");
+    expect(rentalApi).toContain(".order('created_at',{ascending:true}).order('business_id',{ascending:true})");
+  });
+
   it("does not charge open-billing time after a session was paused", () => {
     const sql = readMigration("202610130006_database_hardening_idempotency.sql");
     expect(sql).toContain(
