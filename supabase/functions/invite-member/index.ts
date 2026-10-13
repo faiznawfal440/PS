@@ -55,7 +55,8 @@ Deno.serve(async (req: Request) => {
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return json({ error: "Alamat email tidak valid." }, 400);
     if (!["admin", "operator"].includes(role)) return json({ error: "Role undangan tidak valid." }, 400);
     if (role === "admin" && callerRole !== "owner") return json({ error: "Hanya Pemilik yang boleh mengundang Admin." }, 403);
-    const { data: invited, error: inviteError } = await adminClient.auth.admin.inviteUserByEmail(email);
+    const appUrl = Deno.env.get("APP_SITE_URL") ?? "https://ps-nawfal5.vercel.app";
+    const { data: invited, error: inviteError } = await adminClient.auth.admin.inviteUserByEmail(email, { redirectTo: appUrl });
     if (inviteError || !invited.user) return json({ error: inviteError?.message ?? "Undangan gagal dikirim." }, 400);
     const { error: upsertError } = await adminClient.from("business_members")
       .upsert({ business_id: businessId, user_id: invited.user.id, role, is_active: true }, { onConflict: "business_id,user_id" });
