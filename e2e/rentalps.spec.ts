@@ -51,7 +51,7 @@ test("loads F&B and reservation pages and exports CSV, Excel-compatible and PDF 
   await expect(page.getByRole("heading", { name: "Reservasi", level: 2 })).toBeVisible();
 
   await page.getByRole("button", { name: "Laporan", exact: true }).first().click();
-  await expect(page.getByRole("heading", { name: "Laporan" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Laporan", level: 2 })).toBeVisible();
   for (const [label, extension] of [["CSV", ".csv"], ["Excel", ".xls"], ["PDF", ".pdf"]] as const) {
     const downloadEvent = page.waitForEvent("download");
     await page.getByRole("button", { name: label, exact: true }).click();
