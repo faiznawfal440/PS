@@ -52,6 +52,13 @@ describe("Supabase migration safety", () => {
     );
   });
 
+  it("revokes anonymous execution from SECURITY DEFINER RPCs and adds FK indexes", () => {
+    const sql = readMigration("202610130006_database_hardening_idempotency.sql");
+    expect(sql.match(/from anon, public/g)?.length).toBe(12);
+    expect(sql.match(/grant execute on function public\./g)?.length).toBe(12);
+    expect(sql.match(/create index if not exists [a-z0-9_]+ on public\./g)?.length).toBe(24);
+  });
+
   it("guards reservation unit ownership at both policy and trigger level", () => {
     const sql = readMigration("202610130006_database_hardening_idempotency.sql");
     expect(sql).toContain("RESERVATION_UNIT_BUSINESS_MISMATCH");
