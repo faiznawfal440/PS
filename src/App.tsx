@@ -46,6 +46,7 @@ type IconName =
   | "download"
   | "arrow"
   | "receipt"
+  | "check-circle"
   | "logout";
 
 const paths: Record<IconName, ReactNode> = {
@@ -77,6 +78,7 @@ const paths: Record<IconName, ReactNode> = {
   download: <><path d="M12 3v12M7 10l5 5 5-5M4 21h16" /></>,
   arrow: <path d="M5 12h14M13 6l6 6-6 6" />,
   receipt: <path d="M6 2v20l3-2 3 2 3-2 3 2V2l-3 2-3-2-3 2ZM9 9h6M9 13h6" />,
+  "check-circle": <><circle cx="12" cy="12" r="9"/><path d="m8 12 2.5 2.5L16 9"/></>,
   logout: <><path d="M10 17l5-5-5-5M15 12H3M14 3h7v18h-7" /></>,
 };
 
@@ -84,7 +86,7 @@ function Icon({ name, size = 20 }: { name: IconName; size?: number }) {
   return <svg className="icon" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{paths[name]}</svg>;
 }
 
-type Page = "Dashboard" | "Riwayat" | "Laporan" | "Unit" | "Tarif" | "Pengguna" | "Log Audit" | "Pengaturan";
+type Page = "Dashboard" | "Riwayat" | "Laporan" | "F&B" | "Reservasi" | "Unit" | "Tarif" | "Pengguna" | "Log Audit" | "Pengaturan";
 type Modal = "start" | "add" | "end" | "cancel" | null;
 
 const nav: { label: Page; icon: IconName }[] = [
@@ -94,8 +96,8 @@ const nav: { label: Page; icon: IconName }[] = [
   { label: "Log Audit", icon: "shield" }, { label: "Pengaturan", icon: "settings" },
 ];
 
-function Button({ children, variant = "primary", icon, onClick, className = "", disabled = false }: { children?: ReactNode; variant?: "primary" | "secondary" | "ghost" | "danger"; icon?: IconName; onClick?: () => void; className?: string; disabled?: boolean }) {
-  return <button className={`btn btn-${variant} ${className}`} onClick={onClick} disabled={disabled}>{icon && <Icon name={icon} size={18} />}{children}</button>;
+function Button({ children, variant = "primary", icon, onClick, className = "", disabled = false, block = false }: { children?: ReactNode; variant?: "primary" | "secondary" | "ghost" | "danger"; icon?: IconName; onClick?: () => void; className?: string; disabled?: boolean; block?: boolean }) {
+  return <button className={`btn btn-${variant} ${block ? "full" : ""} ${className}`} onClick={onClick} disabled={disabled}>{icon && <Icon name={icon} size={18} />}{children}</button>;
 }
 
 function Status({ type }: { type: "Kosong" | "Dipakai" | "Hampir habis" | "Overtime" | "Dijeda" | "Maintenance" }) {
