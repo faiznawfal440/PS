@@ -1,16 +1,19 @@
 <!doctype html>
 <html lang="id">
   <head>
-    <!-- figma:head-start -->
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#f4f6fa" />
     <title>RentalPS Manager</title>
-    <!-- figma:head-end -->
+    <style>
+      html,body{margin:0;min-height:100%;background:#f4f6fa}
+      .startup-fallback{max-width:560px;margin:12vh auto;padding:28px;font:15px/1.6 system-ui,sans-serif;color:#182033;background:#fff;border:1px solid #e5e7eb;border-radius:16px;box-shadow:0 12px 35px rgba(15,23,42,.08)}
+      .startup-fallback h1{font-size:22px;margin:0 0 8px}.startup-fallback p{margin:0;color:#667085}
+      @media(max-width:640px){.startup-fallback{margin:24px 14px;padding:20px}}
+    </style>
   </head>
   <body>
-    <!-- figma:body-start -->
-    <div id="root"></div>
+    <div id="root"><main class="startup-fallback"><h1>RentalPS Manager</h1><p>Memuat aplikasi… Jika pesan ini tetap muncul, modul JavaScript belum berhasil dijalankan.</p></main></div>
     <script type="module" src="/src/main.tsx"></script>
-    <!-- figma:body-end -->
   </body>
 </html>
