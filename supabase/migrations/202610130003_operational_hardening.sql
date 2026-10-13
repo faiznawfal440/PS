@@ -104,7 +104,7 @@ begin
   change_due:=greatest(0,received-outstanding);
   insert into public.payments(business_id,session_id,method,amount,received_amount,change_amount,received_by)
   values(s.business_id,s.id,p_payment_method,applied,received,change_due,auth.uid());
-  update public.sessions set payment_status=case when total_paid+applied>=s.total then 'paid' when total_paid+applied>0 then 'partial' else 'unpaid' end,updated_at=now()
+  update public.sessions set payment_status=case when total_paid+applied>=s.total then 'paid' when total_paid+applied>0 then 'partial' else 'unpaid' end
   where id=s.id;
   insert into public.session_events(business_id,session_id,event_type,payload,created_by)
   values(s.business_id,s.id,'payment_received',jsonb_build_object('method',p_payment_method,'applied',applied,'received',received,'change',change_due,'outstanding',outstanding-applied),auth.uid());
