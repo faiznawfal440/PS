@@ -22,12 +22,13 @@ Apply migrations in numeric order:
 4. `supabase/migrations/202610130004_permissions_and_fnb_seed.sql`
 5. `supabase/migrations/202610130005_fix_rental_payment_settlement.sql`
 6. `supabase/migrations/202610130006_database_hardening_idempotency.sql`
+7. `supabase/migrations/202610130007_rls_policy_cleanup.sql`
 
 Migrations are made repeatable where practical: tables/indexes use `IF NOT EXISTS`, functions use `CREATE OR REPLACE`, policy creation is guarded by `DROP POLICY IF EXISTS`, triggers are recreated in a controlled way, constraints check for duplicates, and catalogue seeds use `ON CONFLICT`. Always apply migrations in numeric order. Do not run an older migration after a newer one, because older function/policy definitions can replace newer hardening. `IF NOT EXISTS` also does not repair missing columns or incompatible types in an existing table.
 
-Migration 005 fixes payment settlement. Migration 006 fixes open-billing calculation when a session is paused, ensures reservations can only reference a unit in the same business, and restricts execution of membership helper functions.
+Migration 005 fixes payment settlement. Migration 006 fixes open-billing calculation when a session is paused, ensures reservations can only reference a unit in the same business, removes anonymous execution on privileged RPCs, and adds indexes for previously unindexed foreign keys. Migration 007 removes redundant permissive RLS policies and moves `btree_gist` out of the exposed `public` schema.
 
-**For an existing Supabase database:** check migration history first. If migrations 001–004 are already applied and recorded, apply only pending migrations (005 then 006) through the matching migration workflow. If the schema was created manually in SQL Editor and the migration history is not recorded, do not blindly run every file or use `db push`; reconcile the existing schema/history first. Back up the database before production changes.
+**For an existing Supabase database:** check migration history first and apply only pending migrations. The connected PS project was inspected during this task: the initial schema is present, but its original baseline migration is not separately recorded in migration history; migrations for management, operational hardening, permissions/F&B seed, and payment settlement were recorded. Migrations 006 and 007 were applied to that project and their database effects were verified. Do not run baseline migration 001 or all SQL files from the beginning against that existing project. For another project, reconcile its actual schema/history first and take a backup before production changes.
 
 For invitation/password recovery emails, set Supabase Authentication → URL Configuration:
 - Site URL: `https://ps-nawfal5.vercel.app`
