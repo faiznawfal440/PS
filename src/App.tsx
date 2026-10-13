@@ -304,9 +304,10 @@ function BottomNav({ page, setPage }: { page: Page; setPage: (p:Page)=>void }) {
   return <nav className="bottom-nav">{items.map(x => <button key={x.label} className={page===x.target ? "active":""} onClick={()=>setPage(x.target)}><Icon name={x.icon}/><span>{x.label}</span></button>)}</nav>;
 }
 
-function ReceiptModal({receipt,close}:{receipt:{id:string;unit:string;customer:string;started:string;ended:string;total:number;method:string;received:number;change:number;paidAt:string};close:()=>void}) {
+function ReceiptModal({receipt,close}:{receipt:{id:string;unit:string;customer:string;started:string;ended:string;total:number;paidAmount:number;outstanding:number;method:string;received:number;change:number;paidAt:string};close:()=>void}) {
   const methodName=receipt.method==="cash"?"Tunai":receipt.method==="qris"?"QRIS":receipt.method==="transfer"?"Transfer":"Lainnya";
-  const isPaid=receipt.received>=receipt.total;
+  const isPaid=receipt.outstanding<=0;
+  const isPartial=!isPaid&&receipt.paidAmount>0;
   const shortId=receipt.id.startsWith("DEMO-")?receipt.id:receipt.id.slice(0,8).toUpperCase();
   return <div className="modal-backdrop receipt-print-root" onMouseDown={close}>
     <article className="receipt-paper" onMouseDown={e=>e.stopPropagation()} aria-label="Struk pembayaran">
@@ -315,7 +316,7 @@ function ReceiptModal({receipt,close}:{receipt:{id:string;unit:string;customer:s
         <p className="receipt-tagline">MAIN PUAS, BAYAR JELAS.</p>
         <span className="receipt-doc-title">BUKTI PEMBAYARAN</span>
       </header>
-      <div className="receipt-status-row"><span className="receipt-status"><Icon name={isPaid?"check-circle":"clock"} size={13}/>{isPaid?"LUNAS":"BELUM LUNAS"}</span><span className="receipt-number">#{shortId}</span></div>
+      <div className="receipt-status-row"><span className={"receipt-status"+(isPartial?" is-partial":"")}><Icon name={isPaid?"check-circle":"clock"} size={13}/>{isPaid?"LUNAS":isPartial?"BAYAR SEBAGIAN":"BELUM LUNAS"}</span><span className="receipt-number">#{shortId}</span></div>
       <div className="receipt-meta"><span>Tanggal transaksi</span><b>{receipt.paidAt}</b></div>
       <div className="receipt-section">
         <h4>DETAIL SEWA</h4>
@@ -383,7 +384,7 @@ export default function App() {
   const [ratePlans, setRatePlans] = useState<RatePlan[]>([]);
   const [loadError, setLoadError] = useState(supabaseConfigError);
   const [notice, setNotice] = useState("");
-  const [receipt, setReceipt] = useState<{id:string;unit:string;customer:string;started:string;ended:string;total:number;method:string;received:number;change:number;paidAt:string}|null>(null);
+  const [receipt, setReceipt] = useState<{id:string;unit:string;customer:string;started:string;ended:string;total:number;paidAmount:number;outstanding:number;method:string;received:number;change:number;paidAt:string}|null>(null);
   const mode = isSupabaseConfigured ? "supabase" : "demo";
   useEffect(()=>{
     if(!loggedIn||!isSupabaseConfigured)return;
@@ -463,16 +464,26 @@ export default function App() {
     const estimatedTotal = Number(unit.cost.replace(/[^0-9]/g,"")) || 0;
     let finalTotal = estimatedTotal;
     let receiptId = unit.sessionId || "DEMO-" + Date.now();
+    let paidAmount = 0;
+    let outstanding = estimatedTotal;
+    let changeAmount = 0;
     if (isSupabaseConfigured) {
       if (!unit.sessionId) throw new Error("Sesi aktif tidak ditemukan.");
       const result = await endSession({sessionId:unit.sessionId,method,receivedAmount:amount});
       if (result.error) throw result.error;
-      finalTotal = Number((result.data as any)?.total ?? estimatedTotal);
-      receiptId = String((result.data as any)?.session_id ?? unit.sessionId);
+      const paymentResult = result.data as any;
+      finalTotal = Number(paymentResult?.total ?? estimatedTotal);
+      receiptId = String(paymentResult?.session_id ?? unit.sessionId);
+      paidAmount = Number(paymentResult?.applied ?? 0);
+      outstanding = Number(paymentResult?.outstanding ?? Math.max(0, finalTotal-paidAmount));
+      changeAmount = Number(paymentResult?.change ?? Math.max(0, amount-finalTotal));
     } else {
+      paidAmount=Math.min(finalTotal,Math.max(0,amount));
+      outstanding=Math.max(0,finalTotal-paidAmount);
+      changeAmount=Math.max(0,amount-finalTotal);
       setLiveUnits(current => current.map(item => item.id !== unit.id ? item : ({...item,status:"Kosong",time:"Siap main",label:"Tersedia sekarang",customer:"Belum ada sesi",start:"—",end:"—",cost:item.type === "PS5" ? formatIDR(item.room === "VIP" ? 20000 : 15000)+"/jam" : "Rp 10.000/jam",progress:0,remainingSeconds:undefined,plannedSeconds:undefined,sessionId:undefined,plannedEndAt:null} as UnitView)));
     }
-    setReceipt({id:receiptId,unit:unit.id,customer:unit.customer,started:unit.start,ended:new Date().toLocaleTimeString("id-ID",{hour:"2-digit",minute:"2-digit",hour12:false}),total:finalTotal,method,received:Math.max(0,amount),change:Math.max(0,amount-finalTotal),paidAt:new Date().toLocaleString("id-ID",{day:"2-digit",month:"short",year:"numeric",hour:"2-digit",minute:"2-digit",hour12:false})});
+    setReceipt({id:receiptId,unit:unit.id,customer:unit.customer,started:unit.start,ended:new Date().toLocaleTimeString("id-ID",{hour:"2-digit",minute:"2-digit",hour12:false}),total:finalTotal,paidAmount,outstanding,method,received:Math.max(0,amount),change:changeAmount,paidAt:new Date().toLocaleString("id-ID",{day:"2-digit",month:"short",year:"numeric",hour:"2-digit",minute:"2-digit",hour12:false})});
     await refreshAfterAction("Sesi telah diakhiri dan pembayaran dicatat.");
   };
   const onPause = async () => {
