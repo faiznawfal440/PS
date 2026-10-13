@@ -227,3 +227,24 @@ h1,h2,h3,p { margin: 0; }
 .drawer{overflow-y:auto;overscroll-behavior:contain}
 .drawer .form-stack{min-height:0;overflow-y:auto;padding-bottom:16px}
 .drawer-actions{position:sticky;bottom:0;background:var(--surface);padding:12px 0 calc(4px + env(safe-area-inset-bottom));z-index:2}
+
+/* Functional business settings and combined rental/F&B receipts. */
+.settings-choice-list{display:grid;gap:10px;margin:16px 0}
+.settings-choice-list>label{display:flex;align-items:center;gap:12px;padding:12px;border:1px solid var(--border);border-radius:11px;background:var(--surface-2);cursor:pointer}
+.settings-choice-list input,.settings-toggle-stack input{accent-color:var(--indigo);width:16px;height:16px;flex:0 0 auto}
+.settings-choice-list span{display:flex;flex-direction:column;gap:4px}
+.settings-choice-list b{font-size:12px;color:var(--text)}
+.settings-choice-list small{font-size:10px;color:var(--muted);line-height:1.4}
+.settings-toggle-stack{display:flex;flex-direction:column;gap:12px;justify-content:center;padding:8px 0}
+.settings-toggle-stack label{display:flex;align-items:center;gap:8px;font-size:11px;color:var(--text)}
+.receipt-preview-mini{width:min(320px,100%);margin:18px auto 0;padding:18px 16px;border:1px dashed var(--border);border-radius:9px;background:var(--surface-2);display:flex;flex-direction:column;gap:7px;font-size:11px;color:var(--text);text-align:center}
+.receipt-preview-mini b{font-size:13px}
+.receipt-preview-mini strong{font-size:17px}
+.receipt-preview-mini small{color:var(--muted);font-size:9px;margin-top:5px}
+.receipt-preview-mini hr{width:100%;border:0;border-top:1px dashed var(--border)}
+.receipt-fnb-order{display:block!important;border-bottom:1px dashed var(--border);padding:5px 0 9px!important;margin-bottom:7px}
+.receipt-fnb-order .receipt-line{display:flex;gap:10px;justify-content:space-between;padding:4px 0;font-size:10px}
+.receipt-fnb-order .receipt-line span{min-width:0;overflow-wrap:anywhere}
+.receipt-fnb-order small{display:block;font-size:9px;color:var(--muted)}
+.receipt-paper .receipt-tagline{max-width:100%;overflow-wrap:anywhere}
+@media(max-width:680px){.settings-grid{grid-template-columns:1fr}.settings-nav{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:4px}.settings-nav button{justify-content:center;text-align:center;padding:10px 5px;font-size:10px}.settings-form{padding:15px}.settings-toggle-stack{grid-column:1/-1}}
