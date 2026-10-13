@@ -13,27 +13,23 @@ describe("Supabase migration safety", () => {
   it("uses guarded table and index creation in every migration", () => {
     for (const file of migrationFiles) {
       const sql = readMigration(file);
-      expect(sql, file).not.toMatch(/create\\s+table\\s+(?!if\\s+not\\s+exists)/i);
-      expect(sql, file).not.toMatch(/create\\s+(?:unique\\s+)?index\\s+(?!if\\s+not\\s+exists)/i);
+      expect(sql, file).not.toMatch(/create\s+table\s+(?!if\s+not\s+exists)/i);
+      expect(sql, file).not.toMatch(/create\s+(?:unique\s+)?index\s+(?!if\s+not\s+exists)/i);
     }
   });
 
   it("makes all CREATE POLICY statements repeatable", () => {
     for (const file of migrationFiles) {
       const sql = readMigration(file);
-      const statement = /create\\s+policy\\s+("[^"]+"|[^\\s]+)\\s+on\\s+(public\\.[a-z0-9_]+)/gi;
+      const statement = /create\s+policy\s+("[^"]+"|[^\s]+)\s+on\s+(public\.[a-z0-9_]+)/gi;
       for (const match of sql.matchAll(statement)) {
         const name = match[1].replace(/^"|"$/g, "");
         const table = match[2];
-        const prefix = sql.slice(0, match.index);
-        const guardedDrop = new RegExp(
-          `drop\\\\s+policy\\\\s+if\\\\s+exists\\\\s+"${name.replace(/[.*+?^${}()|[\\]\\\\]/g, "\\\\$&")}"\\\\s+on\\\\s+${table.replace(/[.*+?^${}()|[\\]\\\\]/g, "\\\\$&")}\\\\s*;\\\\s*$`,
-          "i",
-        );
-        const conditionalCreate =
-          prefix.includes("if not exists") &&
-          /do\\s+\\$policy\\$/i.test(prefix.slice(Math.max(0, prefix.lastIndexOf("do $policy$"))));
-        expect(guardedDrop.test(prefix) || conditionalCreate, `${file}: ${name}`).toBe(true);
+        const prefix = sql.slice(0, match.index).trimEnd();
+        const guardedDrop =
+          prefix.endsWith(`drop policy if exists "${name}" on ${table};`) ||
+          prefix.endsWith(`drop policy if exists ${name} on ${table};`);
+        expect(guardedDrop, `${file}: ${name}`).toBe(true);
       }
     }
   });
@@ -52,6 +48,6 @@ describe("Supabase migration safety", () => {
     const sql = readMigration("202610130006_database_hardening_idempotency.sql");
     expect(sql).toContain("RESERVATION_UNIT_BUSINESS_MISMATCH");
     expect(sql).toContain("u.business_id = reservations.business_id");
-    expect(sql).toContain('drop trigger if exists reservations_validate_unit_business');
+    expect(sql).toContain("drop trigger if exists reservations_validate_unit_business");
   });
 });
