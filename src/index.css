@@ -159,3 +159,22 @@ h1,h2,h3,p { margin: 0; }
  .receipt-footer{padding:13px 12px 15px!important;border-radius:0!important}
  .receipt-actions{display:none!important}
 }
+
+.invite-guide{margin:0 0 18px;background:linear-gradient(135deg,#f4f2ff 0%,#fbfaff 100%);border:1px solid #e4defe;border-radius:16px;padding:18px 20px;color:#29234a}
+.invite-guide-heading{display:flex;align-items:flex-start;gap:12px}
+.invite-guide-icon{display:grid;place-items:center;flex:none;width:38px;height:38px;border-radius:12px;background:#e6e0ff;color:#4b3bbd;font-size:18px}
+.invite-guide-heading b{font-size:13px;font-weight:800}
+.invite-guide-heading p{font-size:11px;color:#6f6a8e;margin:4px 0 0;line-height:1.5}
+.invite-steps{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin:17px 0 14px}
+.invite-steps>div{display:flex;align-items:flex-start;gap:9px;min-width:0}
+.invite-steps>div>span{display:grid;place-items:center;flex:none;width:24px;height:24px;border-radius:50%;background:#4f46e5;color:#fff;font-size:11px;font-weight:800}
+.invite-steps>div div{display:flex;flex-direction:column;gap:4px}
+.invite-steps b{font-size:11px;color:#332a62}
+.invite-steps small{font-size:10px;line-height:1.5;color:#787297}
+.invite-role-note{border-top:1px solid #e7e1ff;padding-top:11px;margin:0;font-size:10px;line-height:1.6;color:#6f6a8e}
+.invite-howto{padding:12px 14px;border-radius:12px;background:#f5f4ff;border:1px solid #e2ddff;color:#3d376d;font-size:11px;line-height:1.55}
+.invite-howto>b{display:block;margin-bottom:5px;font-size:12px}
+.invite-howto ol{margin:0;padding-left:18px}.invite-howto li{padding:2px 0}
+.table-status.undangan-dikirim{background:#fff7df;color:#946200;border:1px solid #f2dfa0}
+.table-status.nonaktif{background:#fef2f2;color:#b42318}
+@media(max-width:900px){.invite-steps{grid-template-columns:1fr}.invite-steps>div{gap:10px}.invite-steps small{max-width:480px}}
