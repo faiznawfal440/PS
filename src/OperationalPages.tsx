@@ -7,7 +7,6 @@ import {
   type HistoryRecord, type ManagedRate, type ManagedUnit,
 } from "./lib/rentalApi";
 import { isSupabaseConfigured } from "./lib/supabase";
-import * as XLSX from "xlsx";
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
 
@@ -30,11 +29,22 @@ function exportCsv(filename: string, headers: string[], rows: Array<Array<string
   URL.revokeObjectURL(url);
 }
 function exportExcel(filename:string,title:string,headers:string[],rows:Array<Array<string|number|null|undefined>>) {
-  const workbook=XLSX.utils.book_new();
-  const sheet=XLSX.utils.aoa_to_sheet([[title],headers,...rows]);
-  sheet["!cols"]=headers.map((h,i)=>({wch:Math.min(32,Math.max(h.length,...rows.slice(0,80).map(row=>String(row[i]??"").length))+2)}));
-  XLSX.utils.book_append_sheet(workbook,sheet,"Laporan");
-  XLSX.writeFile(workbook,filename);
+  // Excel 2003 SpreadsheetML opens directly in Microsoft Excel without a vulnerable third-party workbook parser.
+  const xmlEscape=(value:unknown)=>String(value??"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&apos;");
+  const cell=(value:unknown)=> {
+    const numeric=typeof value==="number"&&Number.isFinite(value);
+    return `<Cell><Data ss:Type="${numeric?"Number":"String"}">${xmlEscape(value)}</Data></Cell>`;
+  };
+  const allRows=[ [title], headers, ...rows ];
+  const sheetRows=allRows.map(row=>`<Row>${row.map(cell).join("")}</Row>`).join("");
+  const xml='<?xml version="1.0" encoding="UTF-8"?><?mso-application progid="Excel.Sheet"?>'+
+    '<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">'+
+    '<Styles><Style ss:ID="Header"><Font ss:Bold="1" ss:Color="#FFFFFF"/><Interior ss:Color="#372D82" ss:Pattern="Solid"/></Style></Styles>'+
+    '<Worksheet ss:Name="Laporan"><Table>'+sheetRows+'</Table><WorksheetOptions xmlns="urn:schemas-microsoft-com:office:excel"><FreezePanes/><FrozenNoSplit/><SplitHorizontal>2</SplitHorizontal><TopRowBottomPane>2</TopRowBottomPane></WorksheetOptions></Worksheet></Workbook>';
+  const blob=new Blob(["\\uFEFF",xml],{type:"application/vnd.ms-excel;charset=utf-8;"});
+  const url=URL.createObjectURL(blob);
+  const link=document.createElement("a");
+  link.href=url;link.download=filename.replace(/\\.xlsx$/i,".xls");document.body.appendChild(link);link.click();link.remove();URL.revokeObjectURL(url);
 }
 function exportPdf(filename:string,title:string,headers:string[],rows:Array<Array<string|number|null|undefined>>) {
   const doc=new jsPDF({orientation:headers.length>6?"landscape":"portrait",unit:"mm",format:"a4"});
@@ -129,7 +139,7 @@ export function ReportsPageV2() {
     days.map(d => [d.key, d.count, d.amount, rows.filter(r => r.status === "Selesai" && new Date(r.started_at).toISOString().slice(0, 10) === d.key).reduce((sum, r) => sum + r.duration_minutes, 0)])
   );
   return <div className="page-content">
-    <div className="page-heading"><div><h2>Laporan</h2><p>Ringkasan transaksi selesai dalam periode terpilih.</p></div><div className="export-actions"><button className="btn btn-secondary" onClick={exportRows}>CSV</button><button className="btn btn-secondary" onClick={()=>exportExcel("rentalps-laporan.xlsx","Laporan pendapatan",["Tanggal","Sesi selesai","Pembayaran diterima IDR","Durasi menit"],days.map(d=>[d.key,d.count,d.amount,rows.filter(r=>r.status==="Selesai"&&new Date(r.started_at).toISOString().slice(0,10)===d.key).reduce((sum,r)=>sum+r.duration_minutes,0)]))}>Excel</button><button className="btn btn-secondary" onClick={()=>exportPdf("rentalps-laporan.pdf","Laporan pendapatan",["Tanggal","Sesi","Pendapatan","Durasi m"],days.map(d=>[d.key,d.count,d.amount,rows.filter(r=>r.status==="Selesai"&&new Date(r.started_at).toISOString().slice(0,10)===d.key).reduce((sum,r)=>sum+r.duration_minutes,0)]))}>PDF</button></div></div>
+    <div className="page-heading"><div><h2>Laporan</h2><p>Ringkasan transaksi selesai dalam periode terpilih.</p></div><div className="export-actions"><button className="btn btn-secondary" onClick={exportRows}>CSV</button><button className="btn btn-secondary" onClick={()=>exportExcel("rentalps-laporan.xls","Laporan pendapatan",["Tanggal","Sesi selesai","Pembayaran diterima IDR","Durasi menit"],days.map(d=>[d.key,d.count,d.amount,rows.filter(r=>r.status==="Selesai"&&new Date(r.started_at).toISOString().slice(0,10)===d.key).reduce((sum,r)=>sum+r.duration_minutes,0)]))}>Excel</button><button className="btn btn-secondary" onClick={()=>exportPdf("rentalps-laporan.pdf","Laporan pendapatan",["Tanggal","Sesi","Pendapatan","Durasi m"],days.map(d=>[d.key,d.count,d.amount,rows.filter(r=>r.status==="Selesai"&&new Date(r.started_at).toISOString().slice(0,10)===d.key).reduce((sum,r)=>sum+r.duration_minutes,0)]))}>PDF</button></div></div>
     {!isSupabaseConfigured && <div className="mode-notice">Mode demo: angka di bawah merupakan simulasi.</div>}
     {error && <div className="app-alert error" role="alert">{error}</div>}
     <div className="range-row"><div className="filter-pills">{[{ value: "7", label: "7 hari" }, { value: "30", label: "30 hari" }, { value: "90", label: "3 bulan" }].map(x => <button key={x.value} className={range === x.value ? "selected" : ""} onClick={() => setRange(x.value)}>{x.label}</button>)}</div><span className="report-range">{loading ? "Memuat…" : scoped.length + " sesi"}</span></div>
