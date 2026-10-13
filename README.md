@@ -23,11 +23,11 @@ Apply migrations in numeric order:
 5. `supabase/migrations/202610130005_fix_rental_payment_settlement.sql`
 6. `supabase/migrations/202610130006_database_hardening_idempotency.sql`
 
-Migrations dibuat repeatable sebisa mungkin: tabel/indeks menggunakan `IF NOT EXISTS`, fungsi menggunakan `CREATE OR REPLACE`, pembuatan policy dilindungi `DROP POLICY IF EXISTS`, trigger dibuat ulang secara terkontrol, constraint memeriksa duplikasi, dan seed katalog memakai `ON CONFLICT`. Tetap jalankan dalam urutan angka. Jangan menjalankan satu migration lama setelah migration yang lebih baru karena definisi fungsi/policy lama dapat mengganti hardening yang baru. `IF NOT EXISTS` juga tidak otomatis memperbaiki kolom atau tipe data yang berbeda pada tabel yang sudah telanjur ada.
+Migrations are made repeatable where practical: tables/indexes use `IF NOT EXISTS`, functions use `CREATE OR REPLACE`, policy creation is guarded by `DROP POLICY IF EXISTS`, triggers are recreated in a controlled way, constraints check for duplicates, and catalogue seeds use `ON CONFLICT`. Always apply migrations in numeric order. Do not run an older migration after a newer one, because older function/policy definitions can replace newer hardening. `IF NOT EXISTS` also does not repair missing columns or incompatible types in an existing table.
 
-Migration 005 memperbaiki settlement pembayaran. Migration 006 memperbaiki perhitungan open billing ketika sesi dijeda, memastikan reservasi hanya mengacu ke unit dari bisnis yang sama, dan membatasi akses fungsi helper membership.
+Migration 005 fixes payment settlement. Migration 006 fixes open-billing calculation when a session is paused, ensures reservations can only reference a unit in the same business, and restricts execution of membership helper functions.
 
-**Untuk database Supabase yang sudah dipakai:** cek riwayat migration terlebih dahulu. Jika 001–004 memang sudah diterapkan dan tercatat, terapkan hanya migration yang masih pending (005 lalu 006) melalui alur migration yang sesuai. Jika skema awal pernah dibuat manual lewat SQL Editor dan riwayat migration tidak tercatat, jangan langsung menjalankan seluruh file dari awal atau melakukan `db push`; cocokkan skema/riwayat dahulu. Backup database sebelum perubahan produksi disarankan.
+**For an existing Supabase database:** check migration history first. If migrations 001–004 are already applied and recorded, apply only pending migrations (005 then 006) through the matching migration workflow. If the schema was created manually in SQL Editor and the migration history is not recorded, do not blindly run every file or use `db push`; reconcile the existing schema/history first. Back up the database before production changes.
 
 For invitation/password recovery emails, set Supabase Authentication → URL Configuration:
 - Site URL: `https://ps-nawfal5.vercel.app`
