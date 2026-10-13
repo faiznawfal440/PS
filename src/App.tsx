@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { demoUnits, loadDashboardUnits, loadRatePlans, subscribeToRentalChanges, startSession, extendSession, pauseSession, resumeSession, endSession, setUnitMaintenance, formatIDR, formatTimer, type RatePlan, type UnitView } from "./lib/rentalApi";
 import { isSupabaseConfigured, supabase, supabaseConfigError } from "./lib/supabase";
+import { HistoryPageV2, ReportsPageV2, ManagePageV2 } from "./OperationalPages";
 
 type IconName =
   | "grid"
@@ -383,6 +384,6 @@ export default function App() {
     else setLoggedIn(true);
   };
   if (!loggedIn) return <div className={dark ? "app dark" : "app"}><Login onLogin={handleLogin} dark={dark} setDark={setDark} /></div>;
-  const content = detail ? <DetailPage back={()=>setDetail(false)} /> : page === "Dashboard" ? <Dashboard units={liveUnits} open={openModal} onResume={onResume} onMaintenance={onMaintenance} mode={mode} /> : page === "Riwayat" ? <HistoryPage onDetail={()=>setDetail(true)} /> : page === "Laporan" ? <ReportsPage /> : page === "Log Audit" ? <AuditPage /> : page === "Pengaturan" ? <SettingsPage dark={dark} setDark={setDark} /> : <ManagePage type={page as "Unit"|"Tarif"|"Pengguna"} />;
+  const content = detail ? <DetailPage back={()=>setDetail(false)} /> : page === "Dashboard" ? <Dashboard units={liveUnits} open={openModal} onResume={onResume} onMaintenance={onMaintenance} mode={mode} /> : page === "Riwayat" ? <HistoryPageV2 /> : page === "Laporan" ? <ReportsPageV2 /> : page === "Log Audit" ? <AuditPage /> : page === "Pengaturan" ? <SettingsPage dark={dark} setDark={setDark} /> : <ManagePageV2 type={page as "Unit"|"Tarif"|"Pengguna"} />;
   return <div className={dark ? "app dark" : "app"}><Sidebar page={page} setPage={(p)=>{setPage(p);setDetail(false)}} onLogout={async ()=>{if (supabase) await supabase.auth.signOut();setLoggedIn(false);}} /><main className="main"><Topbar page={detail ? "Riwayat" : page} dark={dark} setDark={setDark} />{(loadError || notice) && <div className={loadError ? "app-alert error" : "app-alert"} role="status">{loadError || notice}<button onClick={()=>{setLoadError("");setNotice("")}} aria-label="Tutup notifikasi">×</button></div>}{content}</main><BottomNav page={page} setPage={(p)=>{setPage(p);setDetail(false)}} />{modal && selectedUnit && <ModalShell type={modal} unit={selectedUnit} ratePlans={ratePlans} close={()=>setModal(null)} onStart={onStart} onExtend={onExtend} onEnd={onEnd} onPause={onPause} />}</div>;
 }
