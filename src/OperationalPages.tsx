@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState, type FormEvent } from "react";
 import {
   deactivateManagedRate, deactivateManagedUnit, formatIDR, inviteManagedMember,
   loadAuditEntries, loadBusinessSettings, loadHistorySessions, loadManagedMembers,
-  loadManagedRates, loadManagedUnits, saveBusinessSettings, saveManagedRate,
+  loadManagedRates, loadManagedUnits, resendManagedInvite, saveBusinessSettings, saveManagedRate,
   saveManagedUnit, updateManagedMember, type AuditRecord, type BusinessSettings,
   type HistoryRecord, type ManagedRate, type ManagedUnit,
 } from "./lib/rentalApi";
@@ -189,6 +189,17 @@ export function ManagePageV2({ type }: { type: ManagerPage }) {
     } catch (e) { setError(e instanceof Error ? e.message : "Data gagal disimpan."); }
     finally { setBusy(false); }
   }
+  async function resendInvite(row: Row) {
+    if (!window.confirm("Kirim undangan baru ke " + row.email + "? Link lama untuk akun pending ini akan diganti.")) return;
+    setError(""); setNotice(""); setBusy(true);
+    try {
+      await resendManagedInvite(String(row.user_id));
+      setNotice("Undangan baru terkirim ke " + row.email + ". Minta pengguna membuka email terbaru.");
+      await refresh();
+    } catch(e) {
+      setError(e instanceof Error ? e.message : "Undangan ulang gagal dikirim.");
+    } finally { setBusy(false); }
+  }
   async function toggle(row: Row) {
     if (!window.confirm((isUser ? (row.is_active ? "Nonaktifkan " : "Aktifkan ") + (row.email || row.user_id) : "Nonaktifkan ") + (isUnit ? row.name || row.code : isRate ? row.name : "") + "?")) return;
     setError(""); setNotice("");
@@ -226,7 +237,7 @@ export function ManagePageV2({ type }: { type: ManagerPage }) {
           {isUnit && <><td>{r.code}</td><td>{r.name}</td><td>{r.console_type}</td><td>{r.room}</td><td>{formatIDR(Number(r.default_hourly_rate) || 0)}</td><td><span className={"table-status " + statusName(r).toLowerCase().replace(/[^a-z]+/g,"-")}>{statusName(r)}</span></td></>}
           {isRate && <><td>{r.name}</td><td>{r.billing_type === "package" ? "Paket" : r.billing_type === "hourly" ? "Per jam" : "Open billing"}</td><td>{r.duration_minutes ? r.duration_minutes + " menit" : "Terbuka"}</td><td>{r.console_type} · {r.room}</td><td>{formatIDR(Number(r.price) || 0)}</td><td><span className={"table-status " + statusName(r).toLowerCase()}>{statusName(r)}</span></td></>}
           {isUser && <><td>{r.display_name || "—"}</td><td>{r.email || r.user_id}</td><td>{r.role === "owner" ? "Pemilik" : r.role === "admin" ? "Admin" : "Operator"}</td><td><span className={"table-status " + statusName(r).toLowerCase()}>{statusName(r)}</span></td></>}
-          <td className="management-actions">{!(isUser && r.role === "owner") && <><button className="btn btn-ghost" onClick={() => openEdit(r)}>Edit</button><button className="btn btn-ghost" onClick={() => void toggle(r)}>{isUser ? (r.is_active ? "Nonaktifkan" : "Aktifkan") : "Nonaktifkan"}</button></>}</td>
+          <td className="management-actions">{isUser && isSupabaseConfigured && !r.email_confirmed && r.invited_at && !r.last_sign_in_at && r.role !== "owner" && <button className="btn btn-secondary" disabled={busy} onClick={() => void resendInvite(r)}>Kirim ulang undangan</button>}{!(isUser && r.role === "owner") && <><button className="btn btn-ghost" onClick={() => openEdit(r)}>Edit akses</button><button className="btn btn-ghost" onClick={() => void toggle(r)}>{isUser ? (r.is_active ? "Nonaktifkan" : "Aktifkan") : "Nonaktifkan"}</button></>}</td>
         </tr>)}
       </tbody></table>
     </div>
