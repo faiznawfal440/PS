@@ -123,8 +123,8 @@ export async function loadManagedMembers():Promise<ManagedMember[]> {
   if(data?.error) throw new Error(String(data.error));
   return (data?.members??[]) as ManagedMember[];
 }
-export async function inviteManagedMember(email:string,role:'admin'|'operator'):Promise<void> {
-  const {data,error}=await requireSupabase().functions.invoke('invite-member',{body:{action:'invite',email,role}});
+export async function inviteManagedMember(email:string,role:'admin'|'operator',displayName=''):Promise<void> {
+  const {data,error}=await requireSupabase().functions.invoke('invite-member',{body:{action:'invite',email,role,display_name:displayName}});
   if(error) throw new Error('Gagal mengundang pengguna. Pastikan Edge Function invite-member sudah dideploy.');
   if(data?.error) throw new Error(String(data.error));
 }
