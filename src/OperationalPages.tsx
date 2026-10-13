@@ -356,7 +356,7 @@ export function SettingsPageV2({dark,setDark}:{dark:boolean;setDark:(v:boolean)=
     finally{setBusy(false);}
   };
   return <div className="page-content settings-page">
-    <div className="page-heading"><div><h2>Pengaturan</h2><p>Profil usaha dan preferensi aplikasi.</p></div><button className="btn btn-primary" type="button" disabled={busy||loading} onClick={()=>document.getElementById("rentalps-settings-form")?.requestSubmit()}>{busy?"Menyimpan…":"Simpan"}</button></div>
+    <div className="page-heading"><div><h2>Pengaturan</h2><p>Profil usaha dan preferensi aplikasi.</p></div><button className="btn btn-primary" type="button" disabled={busy||loading} onClick={()=>document.querySelector<HTMLFormElement>("#rentalps-settings-form")?.requestSubmit()}>{busy?"Menyimpan…":"Simpan"}</button></div>
     {!isSupabaseConfigured&&<div className="mode-notice">Mode demo: pengaturan tersimpan lokal di browser, bukan database bersama.</div>}
     {error&&<div className="app-alert error" role="alert">{error}</div>}
     {notice&&<div className="app-alert" role="status">{notice}</div>}
