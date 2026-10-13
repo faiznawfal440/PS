@@ -279,26 +279,33 @@ function BottomNav({ page, setPage }: { page: Page; setPage: (p:Page)=>void }) {
   return <nav className="bottom-nav">{items.map(x => <button key={x.label} className={page===x.target ? "active":""} onClick={()=>setPage(x.target)}><Icon name={x.icon}/><span>{x.label}</span></button>)}</nav>;
 }
 
-function ReceiptModal({receipt,close}:{receipt:{id:string;unit:string;customer:string;started:string;ended:string;total:number;method:string;received:number;change:number};close:()=>void}) {
+function ReceiptModal({receipt,close}:{receipt:{id:string;unit:string;customer:string;started:string;ended:string;total:number;method:string;received:number;change:number;paidAt:string};close:()=>void}) {
   const methodName=receipt.method==="cash"?"Tunai":receipt.method==="qris"?"QRIS":receipt.method==="transfer"?"Transfer":"Lainnya";
+  const isPaid=receipt.received>=receipt.total;
+  const shortId=receipt.id.startsWith("DEMO-")?receipt.id:receipt.id.slice(0,8).toUpperCase();
   return <div className="modal-backdrop receipt-print-root" onMouseDown={close}>
-    <div className="receipt-paper" onMouseDown={e=>e.stopPropagation()}>
-      <div className="receipt-brand"><span className="brand-mark"><Icon name="console" size={22}/></span><b>RentalPS Manager</b></div>
-      <p className="receipt-muted">BUKTI PEMBAYARAN RENTAL PLAYSTATION</p>
-      <div className="receipt-rule"></div>
-      <div className="receipt-line"><span>No. transaksi</span><b>{receipt.id.slice(0,18)}</b></div>
-      <div className="receipt-line"><span>Unit</span><b>{receipt.unit}</b></div>
-      <div className="receipt-line"><span>Pelanggan</span><b>{receipt.customer}</b></div>
-      <div className="receipt-line"><span>Mulai</span><b>{receipt.started}</b></div>
-      <div className="receipt-line"><span>Selesai</span><b>{receipt.ended}</b></div>
-      <div className="receipt-rule"></div>
-      <div className="receipt-line receipt-total"><span>Total</span><b>{formatIDR(receipt.total)}</b></div>
-      <div className="receipt-line"><span>Metode</span><b>{methodName}</b></div>
-      <div className="receipt-line"><span>Diterima</span><b>{formatIDR(receipt.received)}</b></div>
-      <div className="receipt-line"><span>Kembalian</span><b>{formatIDR(receipt.change)}</b></div>
-      <p className="receipt-thanks">Terima kasih. Selamat bermain kembali!</p>
-      <div className="receipt-actions"><Button variant="secondary" onClick={close}>Tutup</Button><Button icon="receipt" onClick={()=>window.print()}>Cetak struk</Button></div>
-    </div>
+    <article className="receipt-paper" onMouseDown={e=>e.stopPropagation()} aria-label="Struk pembayaran">
+      <header className="receipt-header">
+        <div className="receipt-logo"><span className="receipt-logo-mark"><Icon name="gamepad-2" size={23}/></span><div><b>RentalPS</b><span>MANAGER</span></div></div>
+        <p className="receipt-tagline">MAIN PUAS, BAYAR JELAS.</p>
+        <span className="receipt-doc-title">BUKTI PEMBAYARAN</span>
+      </header>
+      <div className="receipt-status-row"><span className="receipt-status"><Icon name={isPaid?"check-circle":"clock"} size={13}/>{isPaid?"LUNAS":"BELUM LUNAS"}</span><span className="receipt-number">#{shortId}</span></div>
+      <div className="receipt-meta"><span>Tanggal transaksi</span><b>{receipt.paidAt}</b></div>
+      <div className="receipt-section">
+        <h4>DETAIL SEWA</h4>
+        <div className="receipt-detail-grid"><div><span>Unit</span><b>{receipt.unit}</b></div><div><span>Pelanggan</span><b>{receipt.customer||"Pelanggan umum"}</b></div><div><span>Waktu mulai</span><b>{receipt.started}</b></div><div><span>Waktu selesai</span><b>{receipt.ended}</b></div></div>
+      </div>
+      <div className="receipt-total-card"><span>TOTAL PEMBAYARAN</span><strong>{formatIDR(receipt.total)}</strong><small>Sudah termasuk biaya sewa yang tercatat</small></div>
+      <div className="receipt-section receipt-payment">
+        <h4>RINCIAN PEMBAYARAN</h4>
+        <div className="receipt-line"><span>Metode pembayaran</span><b>{methodName}</b></div>
+        <div className="receipt-line"><span>Uang diterima</span><b>{formatIDR(receipt.received)}</b></div>
+        <div className={"receipt-line receipt-change"+(receipt.change>0?" is-change":"")}><span>Kembalian</span><b>{formatIDR(receipt.change)}</b></div>
+      </div>
+      <footer className="receipt-footer"><span className="receipt-footer-icon"><Icon name="gamepad-2" size={20}/></span><b>Terima kasih sudah bermain!</b><p>Simpan struk ini sebagai bukti pembayaran.</p><small>Dicetak melalui RentalPS Manager</small></footer>
+      <div className="receipt-actions"><Button variant="secondary" onClick={close}>Tutup</Button><Button icon="printer" onClick={()=>window.print()}>Cetak struk</Button></div>
+    </article>
   </div>;
 }
 
@@ -313,7 +320,7 @@ export default function App() {
   const [ratePlans, setRatePlans] = useState<RatePlan[]>([]);
   const [loadError, setLoadError] = useState(supabaseConfigError);
   const [notice, setNotice] = useState("");
-  const [receipt, setReceipt] = useState<{id:string;unit:string;customer:string;started:string;ended:string;total:number;method:string;received:number;change:number}|null>(null);
+  const [receipt, setReceipt] = useState<{id:string;unit:string;customer:string;started:string;ended:string;total:number;method:string;received:number;change:number;paidAt:string}|null>(null);
   const mode = isSupabaseConfigured ? "supabase" : "demo";
   useEffect(() => {
     if (!supabase) return;
@@ -390,7 +397,7 @@ export default function App() {
     } else {
       setLiveUnits(current => current.map(item => item.id !== unit.id ? item : ({...item,status:"Kosong",time:"Siap main",label:"Tersedia sekarang",customer:"Belum ada sesi",start:"—",end:"—",cost:item.type === "PS5" ? formatIDR(item.room === "VIP" ? 20000 : 15000)+"/jam" : "Rp 10.000/jam",progress:0,remainingSeconds:undefined,plannedSeconds:undefined,sessionId:undefined,plannedEndAt:null} as UnitView)));
     }
-    setReceipt({id:receiptId,unit:unit.id,customer:unit.customer,started:unit.start,ended:new Date().toLocaleTimeString("id-ID",{hour:"2-digit",minute:"2-digit",hour12:false}),total:finalTotal,method,received:Math.max(0,amount),change:Math.max(0,amount-finalTotal)});
+    setReceipt({id:receiptId,unit:unit.id,customer:unit.customer,started:unit.start,ended:new Date().toLocaleTimeString("id-ID",{hour:"2-digit",minute:"2-digit",hour12:false}),total:finalTotal,method,received:Math.max(0,amount),change:Math.max(0,amount-finalTotal),paidAt:new Date().toLocaleString("id-ID",{day:"2-digit",month:"short",year:"numeric",hour:"2-digit",minute:"2-digit",hour12:false})});
     await refreshAfterAction("Sesi telah diakhiri dan pembayaran dicatat.");
   };
   const onPause = async () => {
