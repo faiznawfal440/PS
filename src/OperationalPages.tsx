@@ -171,7 +171,7 @@ export function ManagePageV2({ type }: { type: ManagerPage }) {
         else { const row = { ...input, id: editing?.id || "demo-unit-" + Date.now() }; persistDemo(editing ? rows.map(r => r.id === editing.id ? row as unknown as Row : r) : [...rows, row as unknown as Row]); }
         setNotice(editing ? "Unit diperbarui." : "Unit ditambahkan.");
       } else if (isRate) {
-        const input: ManagedRate = { id: editing?.id, name: form.name.trim(), billing_type: form.billing_type as ManagedRate["billing_type"], duration_minutes: form.billing_type === "open" ? null : Number(form.duration_minutes), price: Number(form.price), price_per_hour: Number(form.price_per_hour), console_type: form.console_type, room: form.room, rounding_rule_minutes: Number(form.rounding_rule_minutes), overtime_tolerance_minutes: Number(form.overtime_tolerance_minutes) };
+        const input: ManagedRate = { id: editing?.id || "", name: form.name.trim(), billing_type: form.billing_type as ManagedRate["billing_type"], duration_minutes: form.billing_type === "open" ? null : Number(form.duration_minutes), price: Number(form.price), price_per_hour: Number(form.price_per_hour), console_type: form.console_type, room: form.room, rounding_rule_minutes: Number(form.rounding_rule_minutes), overtime_tolerance_minutes: Number(form.overtime_tolerance_minutes) };
         if (isSupabaseConfigured) { await saveManagedRate(input); await refresh(); }
         else { const row = { ...input, id: editing?.id || "demo-rate-" + Date.now(), is_active: true }; persistDemo(editing ? rows.map(r => r.id === editing.id ? row as unknown as Row : r) : [...rows, row as unknown as Row]); }
         setNotice(editing ? "Tarif diperbarui." : "Tarif ditambahkan.");
@@ -181,7 +181,7 @@ export function ManagePageV2({ type }: { type: ManagerPage }) {
         setNotice("Role pengguna diperbarui.");
       } else {
         if (!form.email.trim()) throw new Error("Email pengguna wajib diisi.");
-        if (isSupabaseConfigured) { await inviteManagedMember(form.email.trim(), form.role as "admin" | "operator"); await refresh(); }
+        if (isSupabaseConfigured) { await inviteManagedMember(form.email.trim(), form.role as "admin" | "operator", form.display_name.trim()); await refresh(); }
         else persistDemo([...rows, { user_id: "demo-member-" + Date.now(), display_name: form.display_name || form.email.split("@")[0], email: form.email.trim(), role: form.role, is_active: true }]);
         setNotice(isSupabaseConfigured ? "Undangan dikirim. Minta pengguna memeriksa email." : "Pengguna demo ditambahkan; tidak ada email yang dikirim.");
       }
