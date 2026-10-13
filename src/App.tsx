@@ -386,13 +386,3 @@ export default function App() {
   const content = detail ? <DetailPage back={()=>setDetail(false)} /> : page === "Dashboard" ? <Dashboard units={liveUnits} open={openModal} onResume={onResume} onMaintenance={onMaintenance} mode={mode} /> : page === "Riwayat" ? <HistoryPage onDetail={()=>setDetail(true)} /> : page === "Laporan" ? <ReportsPage /> : page === "Log Audit" ? <AuditPage /> : page === "Pengaturan" ? <SettingsPage dark={dark} setDark={setDark} /> : <ManagePage type={page as "Unit"|"Tarif"|"Pengguna"} />;
   return <div className={dark ? "app dark" : "app"}><Sidebar page={page} setPage={(p)=>{setPage(p);setDetail(false)}} onLogout={async ()=>{if (supabase) await supabase.auth.signOut();setLoggedIn(false);}} /><main className="main"><Topbar page={detail ? "Riwayat" : page} dark={dark} setDark={setDark} />{(loadError || notice) && <div className={loadError ? "app-alert error" : "app-alert"} role="status">{loadError || notice}<button onClick={()=>{setLoadError("");setNotice("")}} aria-label="Tutup notifikasi">×</button></div>}{content}</main><BottomNav page={page} setPage={(p)=>{setPage(p);setDetail(false)}} />{modal && selectedUnit && <ModalShell type={modal} unit={selectedUnit} ratePlans={ratePlans} close={()=>setModal(null)} onStart={onStart} onExtend={onExtend} onEnd={onEnd} onPause={onPause} />}</div>;
 }
-export default function App() {
-  const [loggedIn, setLoggedIn] = useState(true);
-  const [dark, setDark] = useState(false);
-  const [page, setPage] = useState<Page>("Dashboard");
-  const [modal, setModal] = useState<Modal>(null);
-  const [detail, setDetail] = useState(false);
-  if (!loggedIn) return <div className={dark ? "app dark" : "app"}><Login onLogin={() => setLoggedIn(true)} dark={dark} setDark={setDark} /></div>;
-  const content = detail ? <DetailPage back={()=>setDetail(false)} /> : page === "Dashboard" ? <Dashboard open={setModal} /> : page === "Riwayat" ? <HistoryPage onDetail={()=>setDetail(true)} /> : page === "Laporan" ? <ReportsPage /> : page === "Log Audit" ? <AuditPage /> : page === "Pengaturan" ? <SettingsPage dark={dark} setDark={setDark} /> : <ManagePage type={page as "Unit"|"Tarif"|"Pengguna"} />;
-  return <div className={dark ? "app dark" : "app"}><Sidebar page={page} setPage={(p)=>{setPage(p);setDetail(false)}} onLogout={()=>setLoggedIn(false)} /><main className="main"><Topbar page={detail ? "Riwayat" : page} dark={dark} setDark={setDark} />{content}</main><BottomNav page={page} setPage={(p)=>{setPage(p);setDetail(false)}} />{modal && <ModalShell type={modal} close={()=>setModal(null)} />}</div>;
-}
