@@ -29,22 +29,22 @@ function exportCsv(filename: string, headers: string[], rows: Array<Array<string
   URL.revokeObjectURL(url);
 }
 function exportExcel(filename:string,title:string,headers:string[],rows:Array<Array<string|number|null|undefined>>) {
-  // Excel 2003 SpreadsheetML opens directly in Microsoft Excel without a vulnerable third-party workbook parser.
+  // SpreadsheetML is natively readable by Microsoft Excel and avoids a third-party XLSX parser.
   const xmlEscape=(value:unknown)=>String(value??"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&apos;");
-  const cell=(value:unknown)=> {
+  const cell=(value:unknown,style?:string)=> {
     const numeric=typeof value==="number"&&Number.isFinite(value);
-    return `<Cell><Data ss:Type="${numeric?"Number":"String"}">${xmlEscape(value)}</Data></Cell>`;
+    return '<Cell'+(style?' ss:StyleID="'+style+'"':'')+'><Data ss:Type="'+(numeric?'Number':'String')+'">'+xmlEscape(value)+'</Data></Cell>';
   };
   const allRows=[ [title], headers, ...rows ];
-  const sheetRows=allRows.map(row=>`<Row>${row.map(cell).join("")}</Row>`).join("");
+  const sheetRows=allRows.map((row,index)=>'<Row>'+row.map(value=>cell(value,index===1?'Header':undefined)).join('')+'</Row>').join('');
   const xml='<?xml version="1.0" encoding="UTF-8"?><?mso-application progid="Excel.Sheet"?>'+
     '<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">'+
     '<Styles><Style ss:ID="Header"><Font ss:Bold="1" ss:Color="#FFFFFF"/><Interior ss:Color="#372D82" ss:Pattern="Solid"/></Style></Styles>'+
     '<Worksheet ss:Name="Laporan"><Table>'+sheetRows+'</Table><WorksheetOptions xmlns="urn:schemas-microsoft-com:office:excel"><FreezePanes/><FrozenNoSplit/><SplitHorizontal>2</SplitHorizontal><TopRowBottomPane>2</TopRowBottomPane></WorksheetOptions></Worksheet></Workbook>';
-  const blob=new Blob(["\\uFEFF",xml],{type:"application/vnd.ms-excel;charset=utf-8;"});
+  const blob=new Blob(["\uFEFF",xml],{type:"application/vnd.ms-excel;charset=utf-8;"});
   const url=URL.createObjectURL(blob);
   const link=document.createElement("a");
-  link.href=url;link.download=filename.replace(/\\.xlsx$/i,".xls");document.body.appendChild(link);link.click();link.remove();URL.revokeObjectURL(url);
+  link.href=url;link.download=filename.replace(/\.(xlsx|xls)$/i,".xls");document.body.appendChild(link);link.click();link.remove();URL.revokeObjectURL(url);
 }
 function exportPdf(filename:string,title:string,headers:string[],rows:Array<Array<string|number|null|undefined>>) {
   const doc=new jsPDF({orientation:headers.length>6?"landscape":"portrait",unit:"mm",format:"a4"});
