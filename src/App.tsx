@@ -1,5 +1,9 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 
+import { demoUnits, loadDashboardUnits, loadRatePlans, subscribeToRentalChanges, startSession, extendSession, pauseSession, resumeSession, endSession, setUnitMaintenance, formatIDR, formatTimer, type RatePlan, type UnitView } from "./lib/rentalApi";
+import { isSupabaseConfigured, supabase, supabaseConfigError } from "./lib/supabase";
+import { AuditPageV2, HistoryPageV2, ManagePageV2, ReportsPageV2, SettingsPageV2 } from "./OperationalPages";
+
 const authParamsAtEntry = new URLSearchParams(window.location.hash.replace(/^#/, ""));
 const authTypeAtEntry = authParamsAtEntry.get("type") || new URLSearchParams(window.location.search).get("type");
 const authErrorCodeAtEntry = authParamsAtEntry.get("error_code") || new URLSearchParams(window.location.search).get("error_code");
@@ -7,11 +11,9 @@ const authErrorDescriptionAtEntry = authParamsAtEntry.get("error_description") |
 const authLinkErrorAtEntry = authErrorCodeAtEntry === "otp_expired"
   ? "Tautan undangan sudah kedaluwarsa atau sudah digunakan. Minta Pemilik mengirim undangan baru, lalu buka tautan terbaru."
   : authErrorCodeAtEntry
-    ? (authErrorDescriptionAtEntry ? decodeURIComponent(authErrorDescriptionAtEntry.replace(/\+/g, " ")) : "Tautan autentikasi tidak valid. Minta undangan baru dari Pemilik.")
+    ? (authErrorDescriptionAtEntry || "Tautan autentikasi tidak valid. Minta undangan baru dari Pemilik.")
     : "";
-import { demoUnits, loadDashboardUnits, loadRatePlans, subscribeToRentalChanges, startSession, extendSession, pauseSession, resumeSession, endSession, setUnitMaintenance, formatIDR, formatTimer, type RatePlan, type UnitView } from "./lib/rentalApi";
-import { isSupabaseConfigured, supabase, supabaseConfigError } from "./lib/supabase";
-import { AuditPageV2, HistoryPageV2, ManagePageV2, ReportsPageV2, SettingsPageV2 } from "./OperationalPages";
+
 
 type IconName =
   | "grid"
@@ -296,7 +298,7 @@ function ReceiptModal({receipt,close}:{receipt:{id:string;unit:string;customer:s
   return <div className="modal-backdrop receipt-print-root" onMouseDown={close}>
     <article className="receipt-paper" onMouseDown={e=>e.stopPropagation()} aria-label="Struk pembayaran">
       <header className="receipt-header">
-        <div className="receipt-logo"><span className="receipt-logo-mark"><Icon name="gamepad-2" size={23}/></span><div><b>RentalPS</b><span>MANAGER</span></div></div>
+        <div className="receipt-logo"><span className="receipt-logo-mark"><Icon name="console" size={23}/></span><div><b>RentalPS</b><span>MANAGER</span></div></div>
         <p className="receipt-tagline">MAIN PUAS, BAYAR JELAS.</p>
         <span className="receipt-doc-title">BUKTI PEMBAYARAN</span>
       </header>
@@ -313,8 +315,8 @@ function ReceiptModal({receipt,close}:{receipt:{id:string;unit:string;customer:s
         <div className="receipt-line"><span>Uang diterima</span><b>{formatIDR(receipt.received)}</b></div>
         <div className={"receipt-line receipt-change"+(receipt.change>0?" is-change":"")}><span>Kembalian</span><b>{formatIDR(receipt.change)}</b></div>
       </div>
-      <footer className="receipt-footer"><span className="receipt-footer-icon"><Icon name="gamepad-2" size={20}/></span><b>Terima kasih sudah bermain!</b><p>Simpan struk ini sebagai bukti pembayaran.</p><small>Dicetak melalui RentalPS Manager</small></footer>
-      <div className="receipt-actions"><Button variant="secondary" onClick={close}>Tutup</Button><Button icon="printer" onClick={()=>window.print()}>Cetak struk</Button></div>
+      <footer className="receipt-footer"><span className="receipt-footer-icon"><Icon name="console" size={20}/></span><b>Terima kasih sudah bermain!</b><p>Simpan struk ini sebagai bukti pembayaran.</p><small>Dicetak melalui RentalPS Manager</small></footer>
+      <div className="receipt-actions"><Button variant="secondary" onClick={close}>Tutup</Button><Button icon="receipt" onClick={()=>window.print()}>Cetak struk</Button></div>
     </article>
   </div>;
 }
@@ -340,7 +342,7 @@ function SetPasswordScreen({dark,onComplete}:{dark:boolean;onComplete:()=>void})
     finally{setBusy(false);}
   };
   return <main className={"set-password-page"+(dark?" dark":"")}><div className="set-password-card">
-    <span className="set-password-logo"><Icon name="gamepad-2" size={24}/></span>
+    <span className="set-password-logo"><Icon name="console" size={24}/></span>
     {done?<><h1>Akun siap digunakan</h1><p>Password sudah dibuat. Sekarang kamu bisa masuk ke RentalPS Manager.</p><Button block onClick={onComplete}>Lanjut ke dashboard <Icon name="arrow" size={17}/></Button></>:<>
       <span className="live-pill"><i/> UNDANGAN RENTALPS</span><h1>Buat password akun</h1>
       <p>Atur password pribadi sebelum mulai menggunakan RentalPS Manager. Jangan gunakan password Pemilik.</p>
