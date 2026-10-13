@@ -34,7 +34,7 @@ export type HistoryRecord = {
   id: string; customer: string; unit: string; console_type: string; room: string;
   started_at: string; ended_at: string|null; duration_minutes: number;
   total: number; status: 'Selesai'|'Aktif'|'Dijeda'|'Overtime'|'Dibatalkan';
-  payment_status: string; payment_method: string;
+  payment_status: string; payment_method: string; paid_amount: number;
 };
 async function readFunctionError(error: unknown, fallback: string): Promise<string> {
   const e = error as { message?: string; context?: unknown; name?: string } | null;
@@ -165,11 +165,11 @@ export async function updateManagedMember(input:{user_id:string;role?:'admin'|'o
   if(data?.error) throw new Error(String(data.error));
 }
 const demoHistory:HistoryRecord[]=[
-  {id:'SES-DEMO-018',customer:'Budi Santoso',unit:'PS 03',console_type:'PS4',room:'Reguler',started_at:new Date(Date.now()-45*60000).toISOString(),ended_at:new Date(Date.now()-5*60000).toISOString(),duration_minutes:40,total:15000,status:'Selesai',payment_status:'paid',payment_method:'cash'},
-  {id:'SES-DEMO-017',customer:'Siti Aisyah',unit:'PS 06',console_type:'PS4',room:'Reguler',started_at:new Date(Date.now()-120*60000).toISOString(),ended_at:new Date(Date.now()-10*60000).toISOString(),duration_minutes:110,total:20000,status:'Selesai',payment_status:'paid',payment_method:'qris'},
-  {id:'SES-DEMO-016',customer:'Rizky Pratama',unit:'PS 01',console_type:'PS5',room:'VIP',started_at:new Date(Date.now()-90*60000).toISOString(),ended_at:null,duration_minutes:90,total:45000,status:'Aktif',payment_status:'unpaid',payment_method:'—'},
-  {id:'SES-DEMO-015',customer:'Nadia Putri',unit:'PS 02',console_type:'PS5',room:'VIP',started_at:new Date(Date.now()-160*60000).toISOString(),ended_at:new Date(Date.now()-40*60000).toISOString(),duration_minutes:120,total:40000,status:'Selesai',payment_status:'paid',payment_method:'transfer'},
-  {id:'SES-DEMO-014',customer:'Andi Maulana',unit:'PS 05',console_type:'PS5',room:'Reguler',started_at:new Date(Date.now()-200*60000).toISOString(),ended_at:null,duration_minutes:120,total:30000,status:'Dijeda',payment_status:'unpaid',payment_method:'—'}
+  {id:'SES-DEMO-018',customer:'Budi Santoso',unit:'PS 03',console_type:'PS4',room:'Reguler',started_at:new Date(Date.now()-45*60000).toISOString(),ended_at:new Date(Date.now()-5*60000).toISOString(),duration_minutes:40,total:15000,status:'Selesai',payment_status:'paid',payment_method:'cash',paid_amount:15000},
+  {id:'SES-DEMO-017',customer:'Siti Aisyah',unit:'PS 06',console_type:'PS4',room:'Reguler',started_at:new Date(Date.now()-120*60000).toISOString(),ended_at:new Date(Date.now()-10*60000).toISOString(),duration_minutes:110,total:20000,status:'Selesai',payment_status:'paid',payment_method:'qris',paid_amount:20000},
+  {id:'SES-DEMO-016',customer:'Rizky Pratama',unit:'PS 01',console_type:'PS5',room:'VIP',started_at:new Date(Date.now()-90*60000).toISOString(),ended_at:null,duration_minutes:90,total:45000,status:'Aktif',payment_status:'unpaid',payment_method:'—',paid_amount:0},
+  {id:'SES-DEMO-015',customer:'Nadia Putri',unit:'PS 02',console_type:'PS5',room:'VIP',started_at:new Date(Date.now()-160*60000).toISOString(),ended_at:new Date(Date.now()-40*60000).toISOString(),duration_minutes:120,total:40000,status:'Selesai',payment_status:'paid',payment_method:'transfer',paid_amount:40000},
+  {id:'SES-DEMO-014',customer:'Andi Maulana',unit:'PS 05',console_type:'PS5',room:'Reguler',started_at:new Date(Date.now()-200*60000).toISOString(),ended_at:null,duration_minutes:120,total:30000,status:'Dijeda',payment_status:'unpaid',payment_method:'—',paid_amount:0}
 ];
 function statusLabel(status:string):HistoryRecord['status'] {
   const statuses:Record<string,HistoryRecord['status']>={completed:'Selesai',active:'Aktif',paused:'Dijeda',overtime:'Overtime',cancelled:'Dibatalkan'};
@@ -191,7 +191,9 @@ export async function loadHistorySessions():Promise<HistoryRecord[]> {
     console_type:s.units?.console_type||'—',room:s.units?.room||'—',started_at:s.started_at,
     ended_at:s.ended_at??null,duration_minutes:durationBetween(s.started_at,s.ended_at),
     total:Number(s.total??s.subtotal??0),status:statusLabel(s.status),
-    payment_status:s.payment_status||'unpaid',payment_method:s.payments?.[0]?.method||'—'
+    payment_status:s.payment_status||'unpaid',
+    payment_method:s.payments?.[0]?.method||'—',
+    paid_amount:(s.payments??[]).reduce((sum:number,p:any)=>sum+Number(p.amount||0),0)
   })) as HistoryRecord[];
 }
 
@@ -234,4 +236,93 @@ export async function loadAuditEntries():Promise<AuditRecord[]>{
     created_at:r.created_at,user_id:r.user_id??null,
     details:[r.reason,r.after_data?.email,r.after_data?.role,r.after_data?.status].filter(Boolean).join(' · ')||r.entity
   })) as AuditRecord[];
+}
+
+export type CurrentMemberInfo = {userId:string;businessId:string;email:string;role:'owner'|'admin'|'operator';businessName:string};
+export async function loadCurrentMemberInfo():Promise<CurrentMemberInfo>{
+  const {businessId,userId,role}=await currentBusinessContext();
+  const client=requireSupabase();
+  const [{data:{user},error:userError},{data:business,error:businessError}]=await Promise.all([
+    client.auth.getUser(),
+    client.from('businesses').select('name').eq('id',businessId).single()
+  ]);
+  if(userError)throw userError;
+  if(businessError)throw businessError;
+  return {userId,businessId,email:user?.email??'',role:role as CurrentMemberInfo['role'],businessName:business?.name??'RentalPS'};
+}
+export async function requestPasswordReset(email:string):Promise<void>{
+  if(!isSupabaseConfigured)throw new Error('Pemulihan password hanya tersedia saat Supabase terhubung.');
+  const value=email.trim().toLowerCase();
+  if(!value)throw new Error('Masukkan email akun terlebih dahulu.');
+  const {error}=await requireSupabase().auth.resetPasswordForEmail(value,{redirectTo:'https://ps-nawfal5.vercel.app/'});
+  if(error)throw new Error('Email pemulihan gagal dikirim: '+error.message);
+}
+export async function settleSessionPayment(input:{sessionId:string;method:'cash'|'transfer'|'qris'|'other';receivedAmount:number}){
+  return requireSupabase().rpc('add_session_payment',{p_session_id:input.sessionId,p_payment_method:input.method,p_received_amount:input.receivedAmount});
+}
+
+export type FbProduct={id:string;code:string;name:string;category:string;price:number;stock_quantity:number|null;is_active:boolean};
+export type FbOrder={id:string;order_no:string;customer_name:string|null;unit_id:string|null;unit_name:string|null;status:'open'|'paid'|'cancelled';payment_status:'unpaid'|'partial'|'paid';total:number;paid_amount:number;created_at:string;items:Array<{product_name:string;quantity:number;unit_price:number;line_total:number}>};
+export type FnbItemInput={product_id:string;quantity:number};
+export async function loadFbProducts():Promise<FbProduct[]>{
+  if(!isSupabaseConfigured)return [
+    {id:'demo-drink-1',code:'AIR01',name:'Air Mineral',category:'Minuman',price:5000,stock_quantity:30,is_active:true},
+    {id:'demo-drink-2',code:'TEH01',name:'Teh Botol',category:'Minuman',price:6000,stock_quantity:24,is_active:true},
+    {id:'demo-food-1',code:'MIE01',name:'Mi Instan',category:'Makanan',price:8000,stock_quantity:20,is_active:true},
+    {id:'demo-snack-1',code:'SNK01',name:'Keripik',category:'Snack',price:5000,stock_quantity:null,is_active:true}
+  ];
+  const {businessId}=await currentBusinessContext();
+  const {data,error}=await requireSupabase().from('fb_products').select('id,code,name,category,price,stock_quantity,is_active').eq('business_id',businessId).eq('is_active',true).order('category').order('name');
+  if(error)throw error;
+  return (data??[]) as FbProduct[];
+}
+export async function saveFbProduct(input:Partial<FbProduct>&{code:string;name:string;category:string;price:number;stock_quantity:number|null}):Promise<void>{
+  const {businessId,role}=await currentBusinessContext();
+  if(!['owner','admin'].includes(role))throw new Error('Hanya Pemilik/Admin yang boleh mengelola produk.');
+  if(!input.code.trim()||!input.name.trim()||!Number.isFinite(input.price)||input.price<0)throw new Error('Kode, nama, dan harga produk harus valid.');
+  const row={business_id:businessId,code:input.code.trim().toUpperCase(),name:input.name.trim(),category:input.category.trim()||'Lainnya',price:Math.round(input.price),stock_quantity:input.stock_quantity===null?null:Math.max(0,Math.round(input.stock_quantity)),is_active:true};
+  const q=input.id&&!input.id.startsWith('demo-')
+    ?requireSupabase().from('fb_products').update(row).eq('id',input.id).eq('business_id',businessId)
+    :requireSupabase().from('fb_products').insert(row);
+  const {error}=await q;
+  if(error)throw error;
+}
+export async function loadFbOrders():Promise<FbOrder[]>{
+  if(!isSupabaseConfigured)return [];
+  const {businessId}=await currentBusinessContext();
+  const {data,error}=await requireSupabase().from('fb_orders').select('id,order_no,customer_name,unit_id,status,payment_status,total,created_at,units(name,code),fb_order_items(product_name,quantity,unit_price,line_total),fb_payments(amount)').eq('business_id',businessId).order('created_at',{ascending:false}).limit(150);
+  if(error)throw error;
+  return (data??[]).map((o:any)=>({...o,unit_name:o.units?.name||o.units?.code||null,paid_amount:(o.fb_payments??[]).reduce((sum:number,p:any)=>sum+Number(p.amount||0),0),items:o.fb_order_items??[]})) as FbOrder[];
+}
+export async function createFbOrder(input:{items:FnbItemInput[];unitId?:string;sessionId?:string;customerName?:string;notes?:string}):Promise<string>{
+  if(!input.items.length)throw new Error('Tambahkan minimal satu produk.');
+  if(!isSupabaseConfigured)throw new Error('Pembuatan pesanan F&B permanen memerlukan koneksi Supabase.');
+  const {data,error}=await requireSupabase().rpc('create_fb_order',{p_items:input.items,p_unit_id:input.unitId||null,p_session_id:input.sessionId||null,p_customer_name:input.customerName||null,p_notes:input.notes||null});
+  if(error)throw error;
+  return String(data);
+}
+export async function payFbOrder(input:{orderId:string;method:'cash'|'transfer'|'qris'|'other';receivedAmount:number}){
+  return requireSupabase().rpc('pay_fb_order',{p_order_id:input.orderId,p_payment_method:input.method,p_received_amount:input.receivedAmount});
+}
+export async function cancelFbOrder(orderId:string){return requireSupabase().rpc('cancel_fb_order',{p_order_id:orderId});}
+
+export type ReservationRecord={id:string;customer_name:string;phone:string|null;unit_id:string|null;unit_name:string|null;starts_at:string;ends_at:string;status:'pending'|'confirmed'|'checked_in'|'cancelled'|'completed';notes:string|null};
+export async function loadReservations():Promise<ReservationRecord[]>{
+  if(!isSupabaseConfigured)return [];
+  const {businessId}=await currentBusinessContext();
+  const {data,error}=await requireSupabase().from('reservations').select('id,customer_name,phone,unit_id,starts_at,ends_at,status,notes,units(name,code)').eq('business_id',businessId).gte('ends_at',new Date(Date.now()-7*86400000).toISOString()).order('starts_at',{ascending:true}).limit(300);
+  if(error)throw error;
+  return (data??[]).map((r:any)=>({...r,unit_name:r.units?.name||r.units?.code||null})) as ReservationRecord[];
+}
+export async function createReservation(input:{customer_name:string;phone?:string;unit_id?:string;starts_at:string;ends_at:string;notes?:string}):Promise<void>{
+  if(!isSupabaseConfigured)throw new Error('Reservasi permanen memerlukan koneksi Supabase.');
+  const {businessId,userId}=await currentBusinessContext();
+  if(new Date(input.ends_at)<=new Date(input.starts_at))throw new Error('Waktu selesai harus setelah waktu mulai.');
+  const {error}=await requireSupabase().from('reservations').insert({business_id:businessId,created_by:userId,customer_name:input.customer_name.trim(),phone:input.phone?.trim()||null,unit_id:input.unit_id||null,starts_at:input.starts_at,ends_at:input.ends_at,notes:input.notes?.trim()||null,status:'pending'});
+  if(error)throw new Error(error.message.includes('reservations_unit_time_no_overlap')?'Unit sudah memiliki reservasi yang bentrok pada waktu tersebut.':error.message);
+}
+export async function updateReservationStatus(id:string,status:ReservationRecord['status']):Promise<void>{
+  const {businessId}=await currentBusinessContext();
+  const {error}=await requireSupabase().from('reservations').update({status,updated_at:new Date().toISOString()}).eq('business_id',businessId).eq('id',id);
+  if(error)throw error;
 }
