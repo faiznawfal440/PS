@@ -344,7 +344,7 @@ export async function loadSessionFnbSummary(sessionId:string):Promise<SessionFnb
     .eq('business_id',businessId).eq('session_id',sessionId).neq('status','cancelled')
     .order('created_at',{ascending:true});
   if(error)throw error;
-  const orders=(data??[]).map((o:any)=>{
+  const orders:SessionFnbSummary["orders"]=(data??[]).map((o:any):SessionFnbSummary["orders"][number]=>{
     const paid_amount=(o.fb_payments??[]).reduce((sum:number,p:any)=>sum+Number(p.amount||0),0);
     const total=Number(o.total||0);
     return {id:o.id,order_no:o.order_no,total,paid_amount,outstanding:Math.max(0,total-paid_amount)};
