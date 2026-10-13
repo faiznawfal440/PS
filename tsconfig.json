@@ -25,7 +25,9 @@
   },
   "include": [
     "src",
-    "tests"
+    "tests",
+    "e2e",
+    "playwright.config.ts"
   ],
   "references": []
 }
