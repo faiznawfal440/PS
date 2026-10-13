@@ -36,6 +36,31 @@ export type HistoryRecord = {
   total: number; status: 'Selesai'|'Aktif'|'Dijeda'|'Overtime'|'Dibatalkan';
   payment_status: string; payment_method: string;
 };
+async function readFunctionError(error: unknown, fallback: string): Promise<string> {
+  const e = error as { message?: string; context?: unknown; name?: string } | null;
+  const context = e?.context as (Response & { clone: () => Response }) | undefined;
+  if (context && typeof context.clone === "function") {
+    try {
+      const response = context.clone();
+      let detail = "";
+      const contentType = response.headers.get("content-type") ?? "";
+      if (contentType.includes("json")) {
+        const body = await response.json() as { error?: unknown; message?: unknown; msg?: unknown };
+        detail = String(body.error ?? body.message ?? body.msg ?? "");
+      } else {
+        detail = (await response.text()).slice(0, 400);
+      }
+      if (detail) return detail;
+      if (response.status) return fallback + " (HTTP " + response.status + ").";
+    } catch {
+      // Some fetch/function errors expose a message but no readable response body.
+    }
+  }
+  const message = e?.message?.trim();
+  if (message) return fallback + ": " + message;
+  return fallback + ". Periksa sesi login dan log Edge Function di Supabase.";
+}
+
 async function currentBusinessContext() {
   const client = requireSupabase();
   const {data:{user},error:userError} = await client.auth.getUser();
@@ -120,23 +145,23 @@ export async function loadManagedMembers():Promise<ManagedMember[]> {
     {user_id:'demo-operator',role:'operator',is_active:true,email:'operator@demo.rentalps.id',display_name:'Operator Demo'}
   ];
   const {data,error}=await requireSupabase().functions.invoke('invite-member',{body:{action:'list'}});
-  if(error) throw new Error('Fungsi manajemen pengguna belum dideploy di Supabase. Deploy supabase/functions/invite-member lalu coba kembali.');
+  if(error) throw new Error(await readFunctionError(error,'Gagal memuat daftar pengguna'));
   if(data?.error) throw new Error(String(data.error));
   return (data?.members??[]) as ManagedMember[];
 }
 export async function inviteManagedMember(email:string,role:'admin'|'operator',displayName=''):Promise<void> {
   const {data,error}=await requireSupabase().functions.invoke('invite-member',{body:{action:'invite',email,role,display_name:displayName}});
-  if(error) throw new Error('Gagal mengundang pengguna. Pastikan Edge Function invite-member sudah dideploy.');
+  if(error) throw new Error(await readFunctionError(error,'Gagal mengundang pengguna'));
   if(data?.error) throw new Error(String(data.error));
 }
 export async function resendManagedInvite(userId:string):Promise<void> {
   const {data,error}=await requireSupabase().functions.invoke('invite-member',{body:{action:'resend',user_id:userId}});
-  if(error) throw new Error('Undangan belum terkirim. Periksa koneksi dan konfigurasi Supabase Auth.');
+  if(error) throw new Error(await readFunctionError(error,'Undangan belum terkirim'));
   if(data?.error) throw new Error(String(data.error));
 }
 export async function updateManagedMember(input:{user_id:string;role?:'admin'|'operator';is_active?:boolean}):Promise<void> {
   const {data,error}=await requireSupabase().functions.invoke('invite-member',{body:{action:input.role?'set_role':'set_active',user_id:input.user_id,role:input.role,is_active:input.is_active}});
-  if(error) throw new Error('Gagal mengubah anggota. Pastikan Edge Function invite-member sudah dideploy.');
+  if(error) throw new Error(await readFunctionError(error,'Gagal mengubah anggota'));
   if(data?.error) throw new Error(String(data.error));
 }
 const demoHistory:HistoryRecord[]=[
