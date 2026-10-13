@@ -38,7 +38,7 @@ test("completes a rental session and prints an accurate change receipt", async (
   await expect(receipt.getByText("LUNAS")).toBeVisible();
   await expect(receipt.getByText("Pelanggan E2E")).toBeVisible();
   await expect(receipt.getByText("Kembalian")).toBeVisible();
-  await expect(receipt.getByText(/5\\.000/)).toBeVisible();
+  await expect(receipt).toContainText("Rp 5.000");
   await expect(receipt.getByRole("button", { name: "Cetak struk" })).toBeVisible();
 });
 
