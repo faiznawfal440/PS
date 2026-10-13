@@ -35,7 +35,7 @@ create policy "members create reservations" on public.reservations
   for insert to authenticated
   with check (
     public.is_business_member(reservations.business_id)
-    and reservations.created_by = auth.uid()
+    and reservations.created_by = (select auth.uid())
     and (
       reservations.unit_id is null
       or exists (
@@ -75,8 +75,56 @@ create policy "members update reservations" on public.reservations
     )
   );
 
--- SECURITY DEFINER membership helpers should not be callable by anon/PUBLIC.
-revoke all on function public.is_business_member(uuid) from public;
-grant execute on function public.is_business_member(uuid) to authenticated;
-revoke all on function public.current_business_role(uuid) from public;
+-- Keep internal security-definer RPCs unavailable to anonymous clients.
+-- Preserve authenticated execution because the frontend invokes these APIs.
+revoke all on function public.add_session_payment(uuid,text,numeric) from anon, public;
+grant execute on function public.add_session_payment(uuid,text,numeric) to authenticated;
+revoke all on function public.cancel_fb_order(uuid) from anon, public;
+grant execute on function public.cancel_fb_order(uuid) to authenticated;
+revoke all on function public.create_fb_order(jsonb,uuid,uuid,text,text) from anon, public;
+grant execute on function public.create_fb_order(jsonb,uuid,uuid,text,text) to authenticated;
+revoke all on function public.current_business_role(uuid) from anon, public;
 grant execute on function public.current_business_role(uuid) to authenticated;
+revoke all on function public.end_rental_session(uuid,text,numeric) from anon, public;
+grant execute on function public.end_rental_session(uuid,text,numeric) to authenticated;
+revoke all on function public.extend_rental_session(uuid,integer) from anon, public;
+grant execute on function public.extend_rental_session(uuid,integer) to authenticated;
+revoke all on function public.has_business_role(uuid,text[]) from anon, public;
+grant execute on function public.has_business_role(uuid,text[]) to authenticated;
+revoke all on function public.is_business_member(uuid) from anon, public;
+grant execute on function public.is_business_member(uuid) to authenticated;
+revoke all on function public.pause_rental_session(uuid,text) from anon, public;
+grant execute on function public.pause_rental_session(uuid,text) to authenticated;
+revoke all on function public.pay_fb_order(uuid,text,numeric) from anon, public;
+grant execute on function public.pay_fb_order(uuid,text,numeric) to authenticated;
+revoke all on function public.resume_rental_session(uuid) from anon, public;
+grant execute on function public.resume_rental_session(uuid) to authenticated;
+revoke all on function public.start_rental_session(uuid,uuid,text,text,integer,numeric) from anon, public;
+grant execute on function public.start_rental_session(uuid,uuid,text,text,integer,numeric) to authenticated;
+
+-- Cover foreign keys used for joins/deletes. These indexes were reported missing by
+-- Supabase's performance advisor in the connected production project.
+create index if not exists audit_logs_business_id_idx on public.audit_logs(business_id);
+create index if not exists audit_logs_user_id_idx on public.audit_logs(user_id);
+create index if not exists business_members_user_id_idx on public.business_members(user_id);
+create index if not exists businesses_created_by_idx on public.businesses(created_by);
+create index if not exists fb_order_items_product_id_idx on public.fb_order_items(product_id);
+create index if not exists fb_orders_created_by_idx on public.fb_orders(created_by);
+create index if not exists fb_orders_session_id_idx on public.fb_orders(session_id);
+create index if not exists fb_orders_unit_id_idx on public.fb_orders(unit_id);
+create index if not exists fb_payments_business_id_idx on public.fb_payments(business_id);
+create index if not exists fb_payments_order_id_idx on public.fb_payments(order_id);
+create index if not exists fb_payments_received_by_idx on public.fb_payments(received_by);
+create index if not exists payments_business_id_idx on public.payments(business_id);
+create index if not exists payments_received_by_idx on public.payments(received_by);
+create index if not exists payments_session_id_idx on public.payments(session_id);
+create index if not exists rate_plans_business_id_idx on public.rate_plans(business_id);
+create index if not exists reservations_created_by_idx on public.reservations(created_by);
+create index if not exists session_events_business_id_idx on public.session_events(business_id);
+create index if not exists session_events_created_by_idx on public.session_events(created_by);
+create index if not exists session_events_session_id_idx on public.session_events(session_id);
+create index if not exists session_pauses_created_by_idx on public.session_pauses(created_by);
+create index if not exists session_pauses_session_id_idx on public.session_pauses(session_id);
+create index if not exists sessions_created_by_idx on public.sessions(created_by);
+create index if not exists sessions_ended_by_idx on public.sessions(ended_by);
+create index if not exists sessions_rate_plan_id_idx on public.sessions(rate_plan_id);
