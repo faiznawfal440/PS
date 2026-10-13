@@ -3,7 +3,7 @@ import {
   deactivateManagedRate, deactivateManagedUnit, formatIDR, inviteManagedMember,
   loadAuditEntries, loadBusinessSettings, loadHistorySessions, loadManagedMembers, settleSessionPayment,
   loadManagedRates, loadManagedUnits, loadRevenuePayments, resendManagedInvite, saveBusinessSettings, saveManagedRate,
-  saveManagedUnit, updateManagedMember, type AuditRecord, type BusinessSettings,
+  saveManagedUnit, updateManagedMember, type AuditRecord, type BusinessSettings, type PaymentMethod,
   type HistoryRecord, type ManagedRate, type ManagedUnit, type RevenuePayment,
 } from "./lib/rentalApi";
 import { isSupabaseConfigured } from "./lib/supabase";
