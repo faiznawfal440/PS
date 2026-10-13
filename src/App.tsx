@@ -400,8 +400,8 @@ export default function App() {
   useEffect(() => {
     if (!supabase) return;
     let mounted = true;
-    supabase.auth.getSession().then(({data,error}) => { if (mounted) { if (error) setLoadError(error.message); setLoggedIn(Boolean(data.session)); if (data.session && (authTypeAtEntry === "invite" || authTypeAtEntry === "recovery")) setNeedsPassword(true); } });
-    const {data: listener} = supabase.auth.onAuthStateChange((event,session) => { if (mounted) { setLoggedIn(Boolean(session)); if(!session)setMemberInfo(null); if(event==="PASSWORD_RECOVERY")setNeedsPassword(true); } });
+    supabase.auth.getSession().then((result: {data:{session:any};error:any}) => { const {data,error}=result; if (mounted) { if (error) setLoadError(String(error.message??error)); setLoggedIn(Boolean(data.session)); if (data.session && (authTypeAtEntry === "invite" || authTypeAtEntry === "recovery")) setNeedsPassword(true); } });
+    const {data: listener} = supabase.auth.onAuthStateChange((event:string,session:any) => { if (mounted) { setLoggedIn(Boolean(session)); if(!session)setMemberInfo(null); if(event==="PASSWORD_RECOVERY")setNeedsPassword(true); } });
     return () => { mounted = false; listener.subscription.unsubscribe(); };
   }, []);
   useEffect(() => {
