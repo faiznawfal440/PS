@@ -279,6 +279,29 @@ function BottomNav({ page, setPage }: { page: Page; setPage: (p:Page)=>void }) {
   return <nav className="bottom-nav">{items.map(x => <button key={x.label} className={page===x.target ? "active":""} onClick={()=>setPage(x.target)}><Icon name={x.icon}/><span>{x.label}</span></button>)}</nav>;
 }
 
+function ReceiptModal({receipt,close}:{receipt:{id:string;unit:string;customer:string;started:string;ended:string;total:number;method:string;received:number;change:number};close:()=>void}) {
+  const methodName=receipt.method==="cash"?"Tunai":receipt.method==="qris"?"QRIS":receipt.method==="transfer"?"Transfer":"Lainnya";
+  return <div className="modal-backdrop receipt-print-root" onMouseDown={close}>
+    <div className="receipt-paper" onMouseDown={e=>e.stopPropagation()}>
+      <div className="receipt-brand"><span className="brand-mark"><Icon name="console" size={22}/></span><b>RentalPS Manager</b></div>
+      <p className="receipt-muted">BUKTI PEMBAYARAN RENTAL PLAYSTATION</p>
+      <div className="receipt-rule"></div>
+      <div className="receipt-line"><span>No. transaksi</span><b>{receipt.id.slice(0,18)}</b></div>
+      <div className="receipt-line"><span>Unit</span><b>{receipt.unit}</b></div>
+      <div className="receipt-line"><span>Pelanggan</span><b>{receipt.customer}</b></div>
+      <div className="receipt-line"><span>Mulai</span><b>{receipt.started}</b></div>
+      <div className="receipt-line"><span>Selesai</span><b>{receipt.ended}</b></div>
+      <div className="receipt-rule"></div>
+      <div className="receipt-line receipt-total"><span>Total</span><b>{formatIDR(receipt.total)}</b></div>
+      <div className="receipt-line"><span>Metode</span><b>{methodName}</b></div>
+      <div className="receipt-line"><span>Diterima</span><b>{formatIDR(receipt.received)}</b></div>
+      <div className="receipt-line"><span>Kembalian</span><b>{formatIDR(receipt.change)}</b></div>
+      <p className="receipt-thanks">Terima kasih. Selamat bermain kembali!</p>
+      <div className="receipt-actions"><Button variant="secondary" onClick={close}>Tutup</Button><Button icon="receipt" onClick={()=>window.print()}>Cetak struk</Button></div>
+    </div>
+  </div>;
+}
+
 export default function App() {
   const [loggedIn, setLoggedIn] = useState(!isSupabaseConfigured);
   const [dark, setDark] = useState(false);
@@ -290,6 +313,7 @@ export default function App() {
   const [ratePlans, setRatePlans] = useState<RatePlan[]>([]);
   const [loadError, setLoadError] = useState(supabaseConfigError);
   const [notice, setNotice] = useState("");
+  const [receipt, setReceipt] = useState<{id:string;unit:string;customer:string;started:string;ended:string;total:number;method:string;received:number;change:number}|null>(null);
   const mode = isSupabaseConfigured ? "supabase" : "demo";
   useEffect(() => {
     if (!supabase) return;
@@ -354,10 +378,19 @@ export default function App() {
   };
   const onEnd = async (method:"cash"|"transfer"|"qris"|"other",amount:number) => {
     const unit = selectedUnit; if (!unit) throw new Error("Unit tidak ditemukan.");
+    const estimatedTotal = Number(unit.cost.replace(/[^0-9]/g,"")) || 0;
+    let finalTotal = estimatedTotal;
+    let receiptId = unit.sessionId || "DEMO-" + Date.now();
     if (isSupabaseConfigured) {
       if (!unit.sessionId) throw new Error("Sesi aktif tidak ditemukan.");
-      const result = await endSession({sessionId:unit.sessionId,method,receivedAmount:amount}); if (result.error) throw result.error;
-    } else setLiveUnits(current => current.map(item => item.id !== unit.id ? item : ({...item,status:"Kosong",time:"Siap main",label:"Tersedia sekarang",customer:"Belum ada sesi",start:"—",end:"—",cost:item.type === "PS5" ? formatIDR(item.room === "VIP" ? 20000 : 15000)+"/jam" : "Rp 10.000/jam",progress:0,remainingSeconds:undefined,plannedSeconds:undefined,sessionId:undefined,plannedEndAt:null} as UnitView)));
+      const result = await endSession({sessionId:unit.sessionId,method,receivedAmount:amount});
+      if (result.error) throw result.error;
+      finalTotal = Number((result.data as any)?.total ?? estimatedTotal);
+      receiptId = String((result.data as any)?.session_id ?? unit.sessionId);
+    } else {
+      setLiveUnits(current => current.map(item => item.id !== unit.id ? item : ({...item,status:"Kosong",time:"Siap main",label:"Tersedia sekarang",customer:"Belum ada sesi",start:"—",end:"—",cost:item.type === "PS5" ? formatIDR(item.room === "VIP" ? 20000 : 15000)+"/jam" : "Rp 10.000/jam",progress:0,remainingSeconds:undefined,plannedSeconds:undefined,sessionId:undefined,plannedEndAt:null} as UnitView)));
+    }
+    setReceipt({id:receiptId,unit:unit.id,customer:unit.customer,started:unit.start,ended:new Date().toLocaleTimeString("id-ID",{hour:"2-digit",minute:"2-digit",hour12:false}),total:finalTotal,method,received:Math.max(0,amount),change:Math.max(0,amount-finalTotal)});
     await refreshAfterAction("Sesi telah diakhiri dan pembayaran dicatat.");
   };
   const onPause = async () => {
@@ -385,5 +418,5 @@ export default function App() {
   };
   if (!loggedIn) return <div className={dark ? "app dark" : "app"}><Login onLogin={handleLogin} dark={dark} setDark={setDark} /></div>;
   const content = detail ? <DetailPage back={()=>setDetail(false)} /> : page === "Dashboard" ? <Dashboard units={liveUnits} open={openModal} onResume={onResume} onMaintenance={onMaintenance} mode={mode} /> : page === "Riwayat" ? <HistoryPageV2 /> : page === "Laporan" ? <ReportsPageV2 /> : page === "Log Audit" ? <AuditPage /> : page === "Pengaturan" ? <SettingsPage dark={dark} setDark={setDark} /> : <ManagePageV2 type={page as "Unit"|"Tarif"|"Pengguna"} />;
-  return <div className={dark ? "app dark" : "app"}><Sidebar page={page} setPage={(p)=>{setPage(p);setDetail(false)}} onLogout={async ()=>{if (supabase) await supabase.auth.signOut();setLoggedIn(false);}} /><main className="main"><Topbar page={detail ? "Riwayat" : page} dark={dark} setDark={setDark} />{(loadError || notice) && <div className={loadError ? "app-alert error" : "app-alert"} role="status">{loadError || notice}<button onClick={()=>{setLoadError("");setNotice("")}} aria-label="Tutup notifikasi">×</button></div>}{content}</main><BottomNav page={page} setPage={(p)=>{setPage(p);setDetail(false)}} />{modal && selectedUnit && <ModalShell type={modal} unit={selectedUnit} ratePlans={ratePlans} close={()=>setModal(null)} onStart={onStart} onExtend={onExtend} onEnd={onEnd} onPause={onPause} />}</div>;
+  return <div className={dark ? "app dark" : "app"}><Sidebar page={page} setPage={(p)=>{setPage(p);setDetail(false)}} onLogout={async ()=>{if (supabase) await supabase.auth.signOut();setLoggedIn(false);}} /><main className="main"><Topbar page={detail ? "Riwayat" : page} dark={dark} setDark={setDark} />{(loadError || notice) && <div className={loadError ? "app-alert error" : "app-alert"} role="status">{loadError || notice}<button onClick={()=>{setLoadError("");setNotice("")}} aria-label="Tutup notifikasi">×</button></div>}{content}</main><BottomNav page={page} setPage={(p)=>{setPage(p);setDetail(false)}} />{modal && selectedUnit && <ModalShell type={modal} unit={selectedUnit} ratePlans={ratePlans} close={()=>setModal(null)} onStart={onStart} onExtend={onExtend} onEnd={onEnd} onPause={onPause} />}{receipt && <ReceiptModal receipt={receipt} close={()=>setReceipt(null)} />}</div>;
 }
