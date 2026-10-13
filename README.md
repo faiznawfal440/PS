@@ -1,8 +1,8 @@
 # PS Supabase PS Manager — RentalPS Manager
 
-React + TypeScript + Vite frontend berdasar desain Figma Make, dengan Supabase Auth, PostgreSQL, RLS, RPC untuk sesi, dan Realtime.
+React 19 + TypeScript + Vite dashboard, Supabase Auth/Postgres/RLS/Realtime and Vercel production deployment.
 
-## Menjalankan
+## Local development
 
 ```bash
 npm install
@@ -10,33 +10,48 @@ cp .env.example .env.local
 npm run dev
 ```
 
-Isi `.env.local` dari Supabase Project Settings → API:
+Set `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` from Supabase Project Settings → API. The publishable/anon key is intended for browser use under correctly configured RLS. Never expose the Supabase secret/service-role key with a `VITE_` prefix.
 
-```dotenv
-VITE_SUPABASE_URL=https://<project-ref>.supabase.co
-VITE_SUPABASE_ANON_KEY=<publishable-or-anon-key>
+## Database setup
+
+Apply migrations in order:
+
+1. `supabase/migrations/202610130001_initial_rentalps.sql`
+2. `supabase/migrations/202610130002_management.sql`
+3. `supabase/migrations/202610130003_operational_hardening.sql`
+4. `supabase/migrations/202610130004_permissions_and_fnb_seed.sql`
+
+The active Supabase project already has the operational hardening and F&B/role seed migrations applied. It contains 6 active rental units, 12 active rate plans and 6 initial F&B products. Adjust sample rates, product prices and inventory to the real business.
+
+For invitation/password recovery emails, set Supabase Authentication → URL Configuration:
+- Site URL: `https://ps-nawfal5.vercel.app`
+- Redirect URL allowlist: `https://ps-nawfal5.vercel.app/**`
+
+The Edge Function `invite-member` must be deployed with JWT verification enabled. It uses the server-only service role key inside the Edge Function; never put that secret into frontend env variables.
+
+## Implemented modules
+
+- Role-aware navigation (owner/admin/operator), Supabase email/password login, invitation acceptance password setup and password recovery.
+- Live rental dashboard, start/extend/pause/resume/end session, receipt/thermal print and session history with settlement of outstanding balances.
+- Unit/rate CRUD, user invitation and role status through the Edge Function.
+- Reports filtered to a selected period, CSV, Excel-compatible SpreadsheetML (.xls) and PDF exports. Revenue is based on recorded payments rather than just session invoice total.
+- F&B product catalogue, stock-tracked orders, payment/partial payment and cancellation via audited RPC.
+- Reservations with customer details and time-overlap protection for confirmed bookings.
+- Audit trail and business settings.
+
+## Quality checks
+
+```bash
+npm run typecheck
+npm test
+npm run build
+npm audit
 ```
 
-Jangan pernah menaruh service-role key ke frontend.
+Billing helpers have 9 automated tests covering exact payment, change, partial settlement, overtime grace/rounding and open billing. An actual end-to-end flow still requires logging in with a real owner account and verifying invitation email delivery and printer hardware.
 
-## Database
+## Known limitations
 
-Jalankan `supabase/migrations/202610130001_initial_rentalps.sql` lewat Supabase SQL Editor/CLI, lalu buat user melalui Authentication → Users dan bootstrap usaha serta membership owner sekali lewat SQL Editor:
-
-```sql
-with b as (
- insert into public.businesses(name,created_by) values ('RentalPS Anda','USER_UUID') returning id
-)
-insert into public.business_members(business_id,user_id,role) select id,'USER_UUID','owner' from b;
-```
-
-Ganti `USER_UUID` dengan UUID user. Setelah itu tambah data awal pada tabel `units` dan `rate_plans` dengan `business_id` yang sama. RLS mengisolasi setiap bisnis; gunakan akun pemilik/admin untuk mengubah unit dan tarif.
-
-## MVP yang tersedia
-
-- Dashboard grid unit, countdown lokal per detik, mode demo bila Supabase belum dikonfigurasi.
-- Mulai sesi, tambah waktu, jeda, lanjutkan, akhiri dan catat pembayaran ketika Supabase tersambung.
-- Snapshot tarif, status pembayaran, log peristiwa/audit, pencegahan sesi ganda aktif lewat unique partial index.
-- Riwayat, laporan lanjutan, CRUD pengguna/tarif penuh, ekspor PDF/XLSX, F&B, reservasi, dan gateway QRIS masih backlog.
-
-Akun Supabase dan proyek database tidak dibuat oleh repo ini. Konfigurasikan proyek dan migrasi terlebih dahulu untuk menggunakan backend.
+- Excel export uses Excel-compatible SpreadsheetML with an `.xls` extension to avoid the unpatched npm `xlsx` package advisories.
+- QRIS is recorded as a payment method; automatic QRIS gateway/payment verification is not integrated.
+- Full transaction E2E tests with a real authenticated account and physical thermal printer still need to be performed.
