@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 
-import { demoUnits, loadDashboardUnits, loadRatePlans, subscribeToRentalChanges, startSession, extendSession, pauseSession, resumeSession, endSession, setUnitMaintenance, formatIDR, formatTimer, type RatePlan, type UnitView } from "./lib/rentalApi";
+import { demoUnits, loadDashboardUnits, loadRatePlans, subscribeToRentalChanges, startSession, extendSession, pauseSession, resumeSession, endSession, setUnitMaintenance, formatIDR, formatTimer, loadBusinessSettings, loadSessionFnbSummary, loadSessionReceipt, type RatePlan, type UnitView, type PaymentMethod, type SessionFnbSummary, type SessionReceiptData, type BusinessSettings } from "./lib/rentalApi";
 import { isSupabaseConfigured, supabase, supabaseConfigError } from "./lib/supabase";
 import { loadCurrentMemberInfo, requestPasswordReset, type CurrentMemberInfo } from "./lib/rentalApi";
 import { AuditPageV2, HistoryPageV2, ManagePageV2, ReportsPageV2, SettingsPageV2 } from "./OperationalPages";
@@ -376,6 +376,7 @@ export default function App() {
   const [memberInfo,setMemberInfo]=useState<CurrentMemberInfo|null>(null);
   const [needsPassword, setNeedsPassword] = useState(authTypeAtEntry === "invite" || authTypeAtEntry === "recovery");
   const [dark, setDark] = useState(false);
+  const [paymentMethods,setPaymentMethods]=useState<PaymentMethod[]>(["cash","transfer","qris","other"]);
   const [page, setPage] = useState<Page>("Dashboard");
   const [modal, setModal] = useState<Modal>(null);
   const [selectedUnitId, setSelectedUnitId] = useState("PS 03");
@@ -384,8 +385,22 @@ export default function App() {
   const [ratePlans, setRatePlans] = useState<RatePlan[]>([]);
   const [loadError, setLoadError] = useState(supabaseConfigError);
   const [notice, setNotice] = useState("");
-  const [receipt, setReceipt] = useState<{id:string;unit:string;customer:string;started:string;ended:string;total:number;paidAmount:number;outstanding:number;method:string;received:number;change:number;paidAt:string}|null>(null);
+  const [receipt, setReceipt] = useState<SessionReceiptData|null>(null);
   const mode = isSupabaseConfigured ? "supabase" : "demo";
+  useEffect(()=>{
+    if(!loggedIn)return;
+    let mounted=true;
+    void loadBusinessSettings().then((business:BusinessSettings)=>{
+      if(!mounted)return;
+      const configured=business.settings?.payment?.methods;
+      if(Array.isArray(configured)){
+        const allowed=configured.filter((method:unknown):method is PaymentMethod=>["cash","transfer","qris","other"].includes(String(method)));
+        if(allowed.length)setPaymentMethods(allowed);
+      }
+      setDark(business.settings?.appearance?.theme==="dark");
+    }).catch(error=>{if(mounted)console.warn("Pengaturan usaha belum berhasil dimuat.",error);});
+    return()=>{mounted=false;};
+  },[loggedIn]);
   useEffect(()=>{
     if(!loggedIn||!isSupabaseConfigured)return;
     let mounted=true;
@@ -463,28 +478,51 @@ export default function App() {
     const unit = selectedUnit; if (!unit) throw new Error("Unit tidak ditemukan.");
     const estimatedTotal = Number(unit.cost.replace(/[^0-9]/g,"")) || 0;
     let finalTotal = estimatedTotal;
+    let rentalTotal = estimatedTotal;
+    let fnbTotal = 0;
     let receiptId = unit.sessionId || "DEMO-" + Date.now();
     let paidAmount = 0;
     let outstanding = estimatedTotal;
     let changeAmount = 0;
+    let fnbOrders:SessionReceiptData["fnbOrders"]=[];
     if (isSupabaseConfigured) {
       if (!unit.sessionId) throw new Error("Sesi aktif tidak ditemukan.");
       const result = await endSession({sessionId:unit.sessionId,method,receivedAmount:amount});
       if (result.error) throw result.error;
       const paymentResult = result.data as any;
       finalTotal = Number(paymentResult?.total ?? estimatedTotal);
+      rentalTotal = Number(paymentResult?.rental_total ?? estimatedTotal);
+      fnbTotal = Number(paymentResult?.fnb_total ?? 0);
       receiptId = String(paymentResult?.session_id ?? unit.sessionId);
-      paidAmount = Number(paymentResult?.applied ?? 0);
+      paidAmount = Number(paymentResult?.paid_total ?? paymentResult?.applied ?? 0);
       outstanding = Number(paymentResult?.outstanding ?? Math.max(0, finalTotal-paidAmount));
       changeAmount = Number(paymentResult?.change ?? Math.max(0, amount-finalTotal));
+      fnbOrders=(paymentResult?.fnb_orders??[]).map((order:any)=>({
+        id:String(order.order_id),orderNo:String(order.order_no),total:Number(order.total||0),
+        paidAmount:Number(order.paid_amount||0),outstanding:Number(order.outstanding||0),
+        items:(order.items??[]).map((item:any)=>({product_name:String(item.product_name),quantity:Number(item.quantity||0),unit_price:Number(item.unit_price||0),line_total:Number(item.line_total||0)}))
+      }));
     } else {
       paidAmount=Math.min(finalTotal,Math.max(0,amount));
       outstanding=Math.max(0,finalTotal-paidAmount);
       changeAmount=Math.max(0,amount-finalTotal);
       setLiveUnits(current => current.map(item => item.id !== unit.id ? item : ({...item,status:"Kosong",time:"Siap main",label:"Tersedia sekarang",customer:"Belum ada sesi",start:"—",end:"—",cost:item.type === "PS5" ? formatIDR(item.room === "VIP" ? 20000 : 15000)+"/jam" : "Rp 10.000/jam",progress:0,remainingSeconds:undefined,plannedSeconds:undefined,sessionId:undefined,plannedEndAt:null} as UnitView)));
     }
-    setReceipt({id:receiptId,unit:unit.id,customer:unit.customer,started:unit.start,ended:new Date().toLocaleTimeString("id-ID",{hour:"2-digit",minute:"2-digit",hour12:false}),total:finalTotal,paidAmount,outstanding,method,received:Math.max(0,amount),change:changeAmount,paidAt:new Date().toLocaleString("id-ID",{day:"2-digit",month:"short",year:"numeric",hour:"2-digit",minute:"2-digit",hour12:false})});
-    await refreshAfterAction("Sesi telah diakhiri dan pembayaran dicatat.");
+    const businessSettings=await loadBusinessSettings().catch(()=>null);
+    const rawSettings=businessSettings?.settings||{};
+    const profile=rawSettings.profile||{};
+    const receiptSettings=rawSettings.receipt||{};
+    setReceipt({
+      id:receiptId,unit:unit.id,customer:unit.customer,started:unit.start,
+      ended:new Date().toLocaleTimeString("id-ID",{hour:"2-digit",minute:"2-digit",hour12:false}),
+      total:finalTotal,rentalTotal,fnbTotal,fnbOrders,paidAmount,outstanding,method,
+      received:Math.max(0,amount),change:changeAmount,
+      paidAt:new Date().toLocaleString("id-ID",{day:"2-digit",month:"short",year:"numeric",hour:"2-digit",minute:"2-digit",hour12:false}),
+      business:{name:businessSettings?.name||"RentalPS",phone:profile.phone||"",address:profile.address||"",
+        footer:receiptSettings.footer||"Terima kasih telah bermain.",showPhone:receiptSettings.show_phone!==false,
+        showAddress:receiptSettings.show_address!==false,paperWidth:String(receiptSettings.paper_width||"80")==="58"?"58":"80"}
+    });
+    await refreshAfterAction("Sesi telah diakhiri. Tagihan rental dan F&B diproses dalam satu checkout.");
   };
   const onPause = async () => {
     const unit = selectedUnit; if (!unit) throw new Error("Unit tidak ditemukan.");
@@ -512,6 +550,10 @@ export default function App() {
   if (!loggedIn) return <div className={dark ? "app dark" : "app"}><Login onLogin={handleLogin} onForgotPassword={handleForgotPassword} dark={dark} setDark={setDark} /></div>;
   if (needsPassword) return <div className={dark ? "app dark" : "app"}><SetPasswordScreen dark={dark} onComplete={() => { setNeedsPassword(false); setPage("Dashboard"); }} /></div>;
   const allowedPages:Page[]=effectiveRole==="owner"?nav.map(item=>item.label):effectiveRole==="admin"?nav.filter(item=>item.label!=="Pengaturan").map(item=>item.label):["Dashboard","Riwayat","F&B","Reservasi"];
-  const content = !allowedPages.includes(page) ? <div className="page-content"><div className="app-alert error">Akses halaman ini memerlukan izin yang lebih tinggi.</div></div> : detail ? <DetailPage back={()=>setDetail(false)} /> : page === "Dashboard" ? <Dashboard units={liveUnits} open={openModal} onResume={onResume} onMaintenance={onMaintenance} mode={mode} /> : page === "Riwayat" ? <HistoryPageV2 /> : page === "Laporan" ? <ReportsPageV2 /> : page === "F&B" ? <FnbPageV2 role={effectiveRole} /> : page === "Reservasi" ? <ReservationsPageV2 /> : page === "Log Audit" ? <AuditPageV2 /> : page === "Pengaturan" ? <SettingsPageV2 dark={dark} setDark={setDark} /> : <ManagePageV2 type={page as "Unit"|"Tarif"|"Pengguna"} />;
-  return <div className={dark ? "app dark" : "app"}><Sidebar page={page} setPage={(p)=>{if(allowedPages.includes(p)){setPage(p);setDetail(false);}else setLoadError("Role akun ini tidak memiliki akses ke halaman tersebut.");}} onLogout={async ()=>{if (supabase) await supabase.auth.signOut();setLoggedIn(false);setMemberInfo(null);}} role={effectiveRole} email={effectiveEmail} businessName={effectiveBusinessName} /><main className="main"><Topbar page={detail ? "Riwayat" : page} dark={dark} setDark={setDark} />{(loadError || notice) && <div className={loadError ? "app-alert error" : "app-alert"} role="status">{loadError || notice}<button onClick={()=>{setLoadError("");setNotice("")}} aria-label="Tutup notifikasi">×</button></div>}{content}</main><BottomNav page={page} setPage={(p)=>{setPage(p);setDetail(false)}} />{modal && selectedUnit && <ModalShell type={modal} unit={selectedUnit} ratePlans={ratePlans} close={()=>setModal(null)} onStart={onStart} onExtend={onExtend} onEnd={onEnd} onPause={onPause} />}{receipt && <ReceiptModal receipt={receipt} close={()=>setReceipt(null)} />}</div>;
+  const onShowReceipt=async(sessionId:string)=>{
+    try{setReceipt(await loadSessionReceipt(sessionId));setLoadError("");}
+    catch(error){setLoadError(error instanceof Error?error.message:"Struk tidak dapat dimuat dari database.");}
+  };
+  const content = !allowedPages.includes(page) ? <div className="page-content"><div className="app-alert error">Akses halaman ini memerlukan izin yang lebih tinggi.</div></div> : detail ? <DetailPage back={()=>setDetail(false)} /> : page === "Dashboard" ? <Dashboard units={liveUnits} open={openModal} onResume={onResume} onMaintenance={onMaintenance} mode={mode} /> : page === "Riwayat" ? <HistoryPageV2 onReceipt={onShowReceipt} paymentMethods={paymentMethods} /> : page === "Laporan" ? <ReportsPageV2 /> : page === "F&B" ? <FnbPageV2 role={effectiveRole} paymentMethods={paymentMethods} /> : page === "Reservasi" ? <ReservationsPageV2 /> : page === "Log Audit" ? <AuditPageV2 /> : page === "Pengaturan" ? <SettingsPageV2 dark={dark} setDark={setDark} onSaved={(settings)=>{const methods=settings.settings?.payment?.methods;if(Array.isArray(methods)&&methods.length)setPaymentMethods(methods as PaymentMethod[]);setDark(settings.settings?.appearance?.theme==="dark");}} /> : <ManagePageV2 type={page as "Unit"|"Tarif"|"Pengguna"} />;
+  return <div className={dark ? "app dark" : "app"}><Sidebar page={page} setPage={(p)=>{if(allowedPages.includes(p)){setPage(p);setDetail(false);}else setLoadError("Role akun ini tidak memiliki akses ke halaman tersebut.");}} onLogout={async ()=>{if (supabase) await supabase.auth.signOut();setLoggedIn(false);setMemberInfo(null);}} role={effectiveRole} email={effectiveEmail} businessName={effectiveBusinessName} /><main className="main"><Topbar page={detail ? "Riwayat" : page} dark={dark} setDark={setDark} />{(loadError || notice) && <div className={loadError ? "app-alert error" : "app-alert"} role="status">{loadError || notice}<button onClick={()=>{setLoadError("");setNotice("")}} aria-label="Tutup notifikasi">×</button></div>}{content}</main><BottomNav page={page} setPage={(p)=>{setPage(p);setDetail(false)}} />{modal && selectedUnit && <ModalShell type={modal} unit={selectedUnit} ratePlans={ratePlans} paymentMethods={paymentMethods} close={()=>setModal(null)} onStart={onStart} onExtend={onExtend} onEnd={onEnd} onPause={onPause} />}{receipt && <ReceiptModal receipt={receipt} close={()=>setReceipt(null)} />}</div>;
 }
