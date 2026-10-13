@@ -163,3 +163,44 @@ export async function loadHistorySessions():Promise<HistoryRecord[]> {
     payment_status:s.payment_status||'unpaid',payment_method:s.payments?.[0]?.method||'—'
   })) as HistoryRecord[];
 }
+
+export type AuditRecord = {
+  id:string; action:string; entity:string; entity_id:string|null; reason:string|null;
+  created_at:string; user_id:string|null; details:string;
+};
+export type BusinessSettings = {
+  id?:string; name:string; timezone:string; currency:string; settings:Record<string,any>;
+};
+export async function loadBusinessSettings():Promise<BusinessSettings>{
+  if(!isSupabaseConfigured){
+    try{const saved=localStorage.getItem('rentalps-demo-business-settings');if(saved)return JSON.parse(saved) as BusinessSettings;}catch{/* ignore invalid local demo settings */}
+    return {name:'RentalPS Kemang',timezone:'Asia/Jakarta',currency:'IDR',settings:{profile:{phone:'',address:''},receipt:{footer:'Terima kasih telah bermain.'}}};
+  }
+  const {businessId}=await currentBusinessContext();
+  const {data,error}=await requireSupabase().from('businesses').select('id,name,timezone,currency,settings').eq('id',businessId).single();
+  if(error)throw error;
+  return data as BusinessSettings;
+}
+export async function saveBusinessSettings(input:BusinessSettings):Promise<void>{
+  if(!isSupabaseConfigured){localStorage.setItem('rentalps-demo-business-settings',JSON.stringify(input));return;}
+  const {businessId}=await currentBusinessContext();
+  const {error}=await requireSupabase().from('businesses').update({name:input.name.trim(),timezone:input.timezone,currency:'IDR',settings:input.settings}).eq('id',businessId);
+  if(error)throw new Error(error.message.includes('row-level security')?'Hanya Pemilik yang dapat mengubah pengaturan usaha.':error.message);
+}
+export async function loadAuditEntries():Promise<AuditRecord[]>{
+  if(!isSupabaseConfigured){
+    return [
+      {id:'demo-audit-1',action:'session.ended',entity:'session',entity_id:'SES-DEMO-018',reason:null,created_at:new Date(Date.now()-4*60000).toISOString(),user_id:null,details:'Pembayaran transaksi demo dicatat'},
+      {id:'demo-audit-2',action:'session.extended',entity:'session',entity_id:'SES-DEMO-017',reason:null,created_at:new Date(Date.now()-20*60000).toISOString(),user_id:null,details:'Tambahan durasi sesi'},
+      {id:'demo-audit-3',action:'unit.maintenance_changed',entity:'unit',entity_id:'PS 06',reason:'Pemeriksaan stik',created_at:new Date(Date.now()-90*60000).toISOString(),user_id:null,details:'Status unit diperbarui'}
+    ];
+  }
+  const {businessId}=await currentBusinessContext();
+  const {data,error}=await requireSupabase().from('audit_logs').select('id,action,entity,entity_id,reason,created_at,user_id,before_data,after_data').eq('business_id',businessId).order('created_at',{ascending:false}).limit(200);
+  if(error)throw error;
+  return (data??[]).map((r:any)=>({
+    id:r.id,action:r.action,entity:r.entity,entity_id:r.entity_id??null,reason:r.reason??null,
+    created_at:r.created_at,user_id:r.user_id??null,
+    details:[r.reason,r.after_data?.email,r.after_data?.role,r.after_data?.status].filter(Boolean).join(' · ')||r.entity
+  })) as AuditRecord[];
+}
