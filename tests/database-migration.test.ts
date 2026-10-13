@@ -53,7 +53,7 @@ describe("Supabase migration safety", () => {
   });
 
   it("removes duplicate permissive policies and relocates btree_gist safely", () => {
-    const sql = readMigration("supabase/migrations/202610130007_rls_policy_cleanup.sql");
+    const sql = readMigration("202610130007_rls_policy_cleanup.sql");
     expect(sql).toContain('drop policy if exists "admins manage F&B products"');
     expect(sql).toContain('drop policy if exists "admins manage rates"');
     expect(sql).toContain('drop policy if exists "admins deactivate units"');
