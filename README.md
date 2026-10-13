@@ -14,14 +14,20 @@ Set `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` from Supabase Project Setti
 
 ## Database setup
 
-Apply migrations in order:
+Apply migrations in numeric order:
 
 1. `supabase/migrations/202610130001_initial_rentalps.sql`
 2. `supabase/migrations/202610130002_management.sql`
 3. `supabase/migrations/202610130003_operational_hardening.sql`
 4. `supabase/migrations/202610130004_permissions_and_fnb_seed.sql`
+5. `supabase/migrations/202610130005_fix_rental_payment_settlement.sql`
+6. `supabase/migrations/202610130006_database_hardening_idempotency.sql`
 
-The active Supabase project already has the operational hardening and F&B/role seed migrations applied. It contains 6 active rental units, 12 active rate plans and 6 initial F&B products. Adjust sample rates, product prices and inventory to the real business.
+Migrations dibuat repeatable sebisa mungkin: tabel/indeks menggunakan `IF NOT EXISTS`, fungsi menggunakan `CREATE OR REPLACE`, pembuatan policy dilindungi `DROP POLICY IF EXISTS`, trigger dibuat ulang secara terkontrol, constraint memeriksa duplikasi, dan seed katalog memakai `ON CONFLICT`. Tetap jalankan dalam urutan angka. Jangan menjalankan satu migration lama setelah migration yang lebih baru karena definisi fungsi/policy lama dapat mengganti hardening yang baru. `IF NOT EXISTS` juga tidak otomatis memperbaiki kolom atau tipe data yang berbeda pada tabel yang sudah telanjur ada.
+
+Migration 005 memperbaiki settlement pembayaran. Migration 006 memperbaiki perhitungan open billing ketika sesi dijeda, memastikan reservasi hanya mengacu ke unit dari bisnis yang sama, dan membatasi akses fungsi helper membership.
+
+**Untuk database Supabase yang sudah dipakai:** cek riwayat migration terlebih dahulu. Jika 001–004 memang sudah diterapkan dan tercatat, terapkan hanya migration yang masih pending (005 lalu 006) melalui alur migration yang sesuai. Jika skema awal pernah dibuat manual lewat SQL Editor dan riwayat migration tidak tercatat, jangan langsung menjalankan seluruh file dari awal atau melakukan `db push`; cocokkan skema/riwayat dahulu. Backup database sebelum perubahan produksi disarankan.
 
 For invitation/password recovery emails, set Supabase Authentication → URL Configuration:
 - Site URL: `https://ps-nawfal5.vercel.app`
