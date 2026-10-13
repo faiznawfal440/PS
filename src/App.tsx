@@ -266,22 +266,31 @@ function ModalShell({ type, unit, ratePlans, paymentMethods, close, onStart, onE
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [fnbSummary,setFnbSummary]=useState<SessionFnbSummary>({total:0,paid:0,outstanding:0,orders:[]});
+  const [fnbLoading,setFnbLoading]=useState(false);
+  const [fnbLoadFailed,setFnbLoadFailed]=useState(false);
+  const [fnbRefresh,setFnbRefresh]=useState(0);
   useEffect(()=>{
     let alive=true;
-    if(type!=="end"||!unit.sessionId||!isSupabaseConfigured){setFnbSummary({total:0,paid:0,outstanding:0,orders:[]});return()=>{alive=false;};}
+    if(type!=="end"||!unit.sessionId||!isSupabaseConfigured){setFnbSummary({total:0,paid:0,outstanding:0,orders:[]});setFnbLoading(false);setFnbLoadFailed(false);return()=>{alive=false;};}
+    setFnbLoading(true);setFnbLoadFailed(false);setError("");
+    setFnbSummary({total:0,paid:0,outstanding:0,orders:[]});
     loadSessionFnbSummary(unit.sessionId).then(summary=>{
       if(!alive)return;
       setFnbSummary(summary);
       const rentalAmount=Number(unit.cost.replace(/[^0-9]/g,""))||0;
       setReceived(String(rentalAmount+summary.outstanding));
-    }).catch(err=>{if(alive)setError(err instanceof Error?err.message:"Tagihan F&B terkait sesi gagal dimuat.");});
+    }).catch(err=>{if(alive){setFnbLoadFailed(true);setError(err instanceof Error?err.message:"Tagihan F&B terkait sesi gagal dimuat.");}})
+      .finally(()=>{if(alive)setFnbLoading(false);});
     return()=>{alive=false;};
-  },[type,unit.sessionId,unit.cost]);
+  },[type,unit.sessionId,unit.cost,fnbRefresh]);
   useEffect(()=>{if(paymentMethods.length>0&&!paymentMethods.includes(paymentMethod))setPaymentMethod(paymentMethods[0]);},[paymentMethods,paymentMethod]);
   const run = async (fn: () => Promise<void>) => {
     setBusy(true); setError("");
     try { await fn(); close(); } catch (err) { setError(err instanceof Error ? err.message : "Aksi gagal. Periksa koneksi."); } finally { setBusy(false); }
   };
+  const rentalAmount=Number(unit.cost.replace(/[^0-9]/g,""))||0;
+  const combinedInvoiceTotal=rentalAmount+fnbSummary.total;
+  const amountDueNow=rentalAmount+fnbSummary.outstanding;
   const title = type === "start" ? "Mulai Sesi Baru" : type === "add" ? "Tambah Waktu" : type === "cancel" ? "Batalkan Sesi?" : "Akhiri dan Bayar";
   if (type === "cancel") return <div className="modal-backdrop" onMouseDown={close}><div className="modal confirm" onMouseDown={e => e.stopPropagation()}><span className="danger-icon"><Icon name="warning" /></span><h2>{title}</h2><p>Gunakan hak Admin/Pemilik untuk pembatalan agar alasan dan audit tercatat.</p><div className="modal-actions"><Button variant="secondary" onClick={close}>Kembali</Button><Button variant="danger" onClick={close}>Tutup</Button></div></div></div>;
   return <div className="modal-backdrop" onMouseDown={close}><div className="modal" onMouseDown={e => e.stopPropagation()}>
@@ -290,16 +299,17 @@ function ModalShell({ type, unit, ratePlans, paymentMethods, close, onStart, onE
     {type === "add" && <><div className="current-session"><span><small>Sisa waktu saat ini</small><b className="timer">{unit.time}</b></span><span><small>Selesai pukul</small><b>{unit.end}</b></span></div><div className="form-stack"><label><span>Tambahkan durasi</span><div className="duration-grid">{[15,30,60,120].map(min => <button key={min} className={duration === min ? "active" : ""} onClick={() => setDuration(min)}>{min >= 60 ? (min/60) + " jam" : min + " menit"}<small>{formatIDR(Math.round(rate*min/60))}</small></button>)}</div></label></div><div className="modal-summary"><span>Durasi tambahan <b>{duration} menit</b></span><span>Tambahan biaya <strong>{formatIDR(Math.round(rate*duration/60))}</strong></span></div></>}
     {type === "end" && <><div className="receipt-lines">
       <div><span>Pelanggan</span><b>{unit.customer}</b></div>
-      <div><span>Biaya rental</span><b>{formatIDR(Number(unit.cost.replace(/[^0-9]/g,""))||0)}</b></div>
-      {fnbSummary.total>0&&<><div><span>Pesanan F&B ({fnbSummary.orders.length})</span><b>{formatIDR(fnbSummary.total)}</b></div><div><span>F&B sudah terbayar</span><b>{formatIDR(fnbSummary.paid)}</b></div><div><span>Sisa tagihan F&B</span><b>{formatIDR(fnbSummary.outstanding)}</b></div>{fnbSummary.orders.map(order=><div key={order.id}><span>{order.order_no}</span><b>{formatIDR(order.outstanding)} sisa</b></div>)}</>}
+      <div><span>Biaya rental</span><b>{formatIDR(rentalAmount)}</b></div>
+      {fnbLoading ? <div><span>Tagihan F&B terkait sesi</span><b>Memuat tagihan…</b></div> : fnbSummary.orders.length>0 ? <><div><span>Total F&B ({fnbSummary.orders.length} pesanan)</span><b>{formatIDR(fnbSummary.total)}</b></div><div><span>F&B sudah dibayar</span><b>{formatIDR(fnbSummary.paid)}</b></div><div><span>Sisa tagihan F&B</span><b>{formatIDR(fnbSummary.outstanding)}</b></div>{fnbSummary.orders.map(order=><div key={order.id}><span>{order.order_no}</span><b>{formatIDR(order.outstanding)} sisa</b></div>)}</> : <div><span>Pesanan F&B terkait</span><b>Tidak ada</b></div>}
       <div><span>Status waktu</span><b>{unit.status}</b></div>
-      <div className="grand"><span>Total gabungan</span><strong>{formatIDR((Number(unit.cost.replace(/[^0-9]/g,""))||0)+fnbSummary.total)}</strong></div>
-    </div><label className="block-label"><span>Metode pembayaran</span><div className="payment-grid">{([{key:"cash",label:"Tunai",icon:"wallet"},{key:"qris",label:"QRIS",icon:"grid"},{key:"transfer",label:"Transfer",icon:"receipt"},{key:"other",label:"Lainnya",icon:"wallet"}] as const).filter(m=>paymentMethods.includes(m.key)).map(method => <button type="button" key={method.key} className={paymentMethod === method.key ? "active" : ""} onClick={() => setPaymentMethod(method.key)}><Icon name={method.icon} />{method.label}</button>)}</div></label><label className="block-label"><span>Uang diterima (Rp)</span><div className="money-field"><span>Rp</span><input inputMode="numeric" value={received} onChange={e => setReceived(e.target.value.replace(/[^0-9]/g, ""))} /></div></label><div className="change"><span>Perkiraan kembalian</span><b>{formatIDR(Math.max(0, Number(received || 0) - ((Number(unit.cost.replace(/[^0-9]/g,""))||0)+fnbSummary.outstanding)))}</b></div></>}
+      <div className="grand"><span>Total keseluruhan rental + F&B</span><strong>{formatIDR(combinedInvoiceTotal)}</strong></div>
+      <div className="grand"><span>Jumlah yang harus dibayar sekarang</span><strong>{formatIDR(amountDueNow)}</strong></div>
+    </div>{fnbLoadFailed && <button type="button" className="btn btn-secondary" onClick={()=>setFnbRefresh(v=>v+1)}>Coba muat ulang tagihan F&B</button>}<label className="block-label"><span>Metode pembayaran</span><div className="payment-grid">{([{key:"cash",label:"Tunai",icon:"wallet"},{key:"qris",label:"QRIS",icon:"grid"},{key:"transfer",label:"Transfer",icon:"receipt"},{key:"other",label:"Lainnya",icon:"wallet"}] as const).filter(m=>paymentMethods.includes(m.key)).map(method => <button type="button" key={method.key} className={paymentMethod === method.key ? "active" : ""} onClick={() => setPaymentMethod(method.key)}><Icon name={method.icon} />{method.label}</button>)}</div></label><label className="block-label"><span>Uang diterima (Rp)</span><div className="money-field"><span>Rp</span><input inputMode="numeric" value={received} onChange={e => setReceived(e.target.value.replace(/[^0-9]/g, ""))} /></div></label><div className="change"><span>Perkiraan kembalian</span><b>{formatIDR(Math.max(0, Number(received || 0) - amountDueNow))}</b></div></>}
     {error && <p className="form-error" role="alert">{error}</p>}
     <div className="modal-actions">
       {type === "start" && <><Button variant="secondary" onClick={close}>Batal</Button><Button disabled={busy} icon="play" onClick={() => void run(() => onStart({ customerName, durationMinutes: duration, ratePlanId: exactPlan?.id, billingType, ratePerHour: rate }))}>{busy ? "Menyimpan…" : "Mulai sesi"}</Button></>}
       {type === "add" && <><Button variant="secondary" onClick={close}>Batal</Button><Button disabled={busy} icon="plus" onClick={() => void run(() => onExtend(duration))}>{busy ? "Menyimpan…" : "Tambah waktu"}</Button></>}
-      {type === "end" && <><Button variant="secondary" onClick={() => void run(onPause)} icon="pause">Jeda sesi</Button><Button disabled={busy} variant="danger" icon="stop" onClick={() => void run(() => onEnd(paymentMethod, Number(received || 0)))}>{busy ? "Menyimpan…" : "Akhiri & bayar"}</Button></>}
+      {type === "end" && <><Button variant="secondary" onClick={() => void run(onPause)} icon="pause">Jeda sesi</Button><Button disabled={busy||fnbLoading||fnbLoadFailed} variant="danger" icon="stop" onClick={() => void run(() => onEnd(paymentMethod, Number(received || 0)))}>{busy ? "Menyimpan…" : fnbLoading ? "Memuat tagihan…" : fnbLoadFailed ? "Tagihan belum siap" : "Akhiri & bayar gabungan"}</Button></>}
     </div>
   </div></div>;
 }
