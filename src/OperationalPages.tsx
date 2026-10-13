@@ -1,12 +1,15 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import {
   deactivateManagedRate, deactivateManagedUnit, formatIDR, inviteManagedMember,
-  loadAuditEntries, loadBusinessSettings, loadHistorySessions, loadManagedMembers,
+  loadAuditEntries, loadBusinessSettings, loadHistorySessions, loadManagedMembers, settleSessionPayment,
   loadManagedRates, loadManagedUnits, resendManagedInvite, saveBusinessSettings, saveManagedRate,
   saveManagedUnit, updateManagedMember, type AuditRecord, type BusinessSettings,
   type HistoryRecord, type ManagedRate, type ManagedUnit,
 } from "./lib/rentalApi";
 import { isSupabaseConfigured } from "./lib/supabase";
+import * as XLSX from "xlsx";
+import { jsPDF } from "jspdf";
+import autoTable from "jspdf-autotable";
 
 type ManagerPage = "Unit" | "Tarif" | "Pengguna";
 type Row = Record<string, any>;
@@ -26,6 +29,21 @@ function exportCsv(filename: string, headers: string[], rows: Array<Array<string
   link.remove();
   URL.revokeObjectURL(url);
 }
+function exportExcel(filename:string,title:string,headers:string[],rows:Array<Array<string|number|null|undefined>>) {
+  const workbook=XLSX.utils.book_new();
+  const sheet=XLSX.utils.aoa_to_sheet([[title],headers,...rows]);
+  sheet["!cols"]=headers.map((h,i)=>({wch:Math.min(32,Math.max(h.length,...rows.slice(0,80).map(row=>String(row[i]??"").length))+2)}));
+  XLSX.utils.book_append_sheet(workbook,sheet,"Laporan");
+  XLSX.writeFile(workbook,filename);
+}
+function exportPdf(filename:string,title:string,headers:string[],rows:Array<Array<string|number|null|undefined>>) {
+  const doc=new jsPDF({orientation:headers.length>6?"landscape":"portrait",unit:"mm",format:"a4"});
+  doc.setFontSize(15);doc.text(title,14,15);
+  doc.setFontSize(9);doc.text("Dicetak "+new Date().toLocaleString("id-ID"),14,21);
+  autoTable(doc,{startY:27,head:[headers],body:rows.map(row=>row.map(value=>String(value??""))),styles:{fontSize:7,cellPadding:2,overflow:"linebreak"},headStyles:{fillColor:[55,45,130]},margin:{left:12,right:12}});
+  doc.save(filename);
+}
+
 const prettyTime = (value: string | null) => value ? new Date(value).toLocaleString("id-ID", { dateStyle: "short", timeStyle: "short" }) : "—";
 const durationText = (mins: number) => Math.floor(mins / 60) > 0 ? Math.floor(mins / 60) + "j " + (mins % 60) + "m" : (mins % 60) + "m";
 
@@ -36,6 +54,10 @@ export function HistoryPageV2() {
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState("Semua");
   const [page, setPage] = useState(1);
+  const [settling,setSettling]=useState<HistoryRecord|null>(null);
+  const [settleMethod,setSettleMethod]=useState<"cash"|"transfer"|"qris"|"other">("cash");
+  const [settleReceived,setSettleReceived]=useState("");
+  const [settleBusy,setSettleBusy]=useState(false);
   useEffect(() => {
     let alive = true;
     loadHistorySessions().then(data => { if (alive) setRows(data); })
@@ -54,6 +76,18 @@ export function HistoryPageV2() {
     ["ID Sesi", "Pelanggan", "Unit", "Konsol", "Ruangan", "Mulai", "Selesai", "Durasi menit", "Total IDR", "Status", "Status pembayaran", "Metode"],
     filtered.map(r => [r.id, r.customer, r.unit, r.console_type, r.room, prettyTime(r.started_at), prettyTime(r.ended_at), r.duration_minutes, r.total, r.status, r.payment_status, r.payment_method])
   );
+  const submitSettlement=async(e:FormEvent)=>{
+    e.preventDefault();if(!settling)return;setSettleBusy(true);setError("");
+    try{
+      const result=await settleSessionPayment({sessionId:settling.id,method:settleMethod,receivedAmount:Number(settleReceived)});
+      if(result.error)throw result.error;
+      const data=result.data as {applied?:number;change?:number;outstanding?:number};
+      setRows(await loadHistorySessions());
+      setSettling(null);
+      setError("");
+    }catch(e){setError(e instanceof Error?e.message:"Pelunasan gagal.");}
+    finally{setSettleBusy(false);}
+  };
   return <div className="page-content">
     <div className="page-heading"><div><h2>Riwayat Sesi</h2><p>Transaksi rental yang tersimpan atau data demo.</p></div><button className="btn btn-secondary" onClick={exportRows}>Ekspor CSV</button></div>
     {!isSupabaseConfigured && <div className="mode-notice">Mode demo: data belum berasal dari database rental.</div>}
@@ -62,6 +96,7 @@ export function HistoryPageV2() {
     <div className="panel table-wrap"><table><thead><tr>{["ID Sesi", "Pelanggan", "Unit", "Mulai", "Durasi", "Total", "Status", "Pembayaran"].map(h => <th key={h}>{h}</th>)}</tr></thead><tbody>
       {loading ? <tr><td colSpan={8} className="empty-cell">Memuat transaksi…</td></tr> : visible.length === 0 ? <tr><td colSpan={8} className="empty-cell">Tidak ada transaksi untuk filter ini.</td></tr> : visible.map(r => <tr key={r.id}><td className="session-id">{r.id.slice(0, 14)}</td><td>{r.customer}</td><td>{r.unit}</td><td>{prettyTime(r.started_at)}</td><td>{durationText(r.duration_minutes)}</td><td>{formatIDR(r.total)}</td><td><span className={"table-status " + r.status.toLowerCase()}>{r.status}</span></td><td>{r.payment_status === "paid" ? "Lunas" : r.payment_status === "partial" ? "Sebagian" : "Belum dibayar"}{r.payment_method !== "—" ? " · " + r.payment_method.toUpperCase() : ""}</td></tr>)}
     </tbody></table><div className="table-footer"><span>{filtered.length === 0 ? 0 : (page - 1) * size + 1}–{Math.min(page * size, filtered.length)} dari {filtered.length} sesi</span><div><button disabled={page <= 1} onClick={() => setPage(n => Math.max(1, n - 1))}>‹</button><button className="active">{page}/{pages}</button><button disabled={page >= pages} onClick={() => setPage(n => Math.min(pages, n + 1))}>›</button></div></div></div>
+    {settling&&<div className="modal-backdrop" onClick={()=>setSettling(null)}><form className="modal" onClick={e=>e.stopPropagation()} onSubmit={e=>void submitSettlement(e)}><div className="modal-head"><div><span className="eyebrow">{settling.id.slice(0,12)}</span><h2>Pelunasan transaksi</h2></div><button type="button" className="icon-btn" onClick={()=>setSettling(null)}>×</button></div><div className="receipt-lines"><div><span>Total tagihan</span><b>{formatIDR(settling.total)}</b></div><div><span>Sudah terbayar</span><b>{formatIDR(settling.paid_amount)}</b></div><div className="grand"><span>Sisa tagihan</span><strong>{formatIDR(Math.max(0,settling.total-settling.paid_amount))}</strong></div></div><label><span>Metode pembayaran</span><select value={settleMethod} onChange={e=>setSettleMethod(e.target.value as "cash"|"transfer"|"qris"|"other")}>{[{v:"cash",l:"Tunai"},{v:"transfer",l:"Transfer"},{v:"qris",l:"QRIS"},{v:"other",l:"Lainnya"}].map(x=><option key={x.v} value={x.v}>{x.l}</option>)}</select></label><label><span>Uang diterima (Rp)</span><input type="number" min="1" required value={settleReceived} onChange={e=>setSettleReceived(e.target.value)}/></label><div className="change"><span>Perkiraan kembalian</span><b>{formatIDR(Math.max(0,Number(settleReceived||0)-(settling.total-settling.paid_amount)))}</b></div><div className="modal-actions"><button type="button" className="btn btn-secondary" onClick={()=>setSettling(null)}>Batal</button><button className="btn btn-primary" disabled={settleBusy||Number(settleReceived)<=0}>{settleBusy?"Menyimpan…":"Simpan pelunasan"}</button></div></form></div>}
   </div>;
 }
 
@@ -80,21 +115,21 @@ export function ReportsPageV2() {
   const cutoff = Date.now() - Number(range) * 86400000;
   const scoped = rows.filter(r => new Date(r.started_at).getTime() >= cutoff);
   const completed = scoped.filter(r => r.status === "Selesai");
-  const revenue = completed.reduce((sum, r) => sum + r.total, 0);
+  const revenue = completed.reduce((sum, r) => sum + r.paid_amount, 0);
   const minutes = completed.reduce((sum, r) => sum + r.duration_minutes, 0);
   const days = Array.from({ length: 7 }, (_, i) => {
     const d = new Date(); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() - (6 - i));
     const key = d.toISOString().slice(0, 10);
     const matched = rows.filter(r => r.status === "Selesai" && new Date(r.started_at).toISOString().slice(0, 10) === key);
-    return { key, label: d.toLocaleDateString("id-ID", { weekday: "short" }), amount: matched.reduce((sum, r) => sum + r.total, 0), count: matched.length };
+    return { key, label: d.toLocaleDateString("id-ID", { weekday: "short" }), amount: matched.reduce((sum, r) => sum + r.paid_amount, 0), count: matched.length };
   });
   const max = Math.max(1, ...days.map(d => d.amount));
   const exportRows = () => exportCsv("rentalps-laporan-pendapatan.csv",
-    ["Tanggal", "Sesi selesai", "Pendapatan IDR", "Durasi menit"],
+    ["Tanggal", "Sesi selesai", "Pembayaran diterima IDR", "Durasi menit"],
     days.map(d => [d.key, d.count, d.amount, rows.filter(r => r.status === "Selesai" && new Date(r.started_at).toISOString().slice(0, 10) === d.key).reduce((sum, r) => sum + r.duration_minutes, 0)])
   );
   return <div className="page-content">
-    <div className="page-heading"><div><h2>Laporan</h2><p>Ringkasan transaksi selesai dalam periode terpilih.</p></div><button className="btn btn-secondary" onClick={exportRows}>Ekspor CSV</button></div>
+    <div className="page-heading"><div><h2>Laporan</h2><p>Ringkasan transaksi selesai dalam periode terpilih.</p></div><div className="export-actions"><button className="btn btn-secondary" onClick={exportRows}>CSV</button><button className="btn btn-secondary" onClick={()=>exportExcel("rentalps-laporan.xlsx","Laporan pendapatan",["Tanggal","Sesi selesai","Pembayaran diterima IDR","Durasi menit"],days.map(d=>[d.key,d.count,d.amount,rows.filter(r=>r.status==="Selesai"&&new Date(r.started_at).toISOString().slice(0,10)===d.key).reduce((sum,r)=>sum+r.duration_minutes,0)]))}>Excel</button><button className="btn btn-secondary" onClick={()=>exportPdf("rentalps-laporan.pdf","Laporan pendapatan",["Tanggal","Sesi","Pendapatan","Durasi m"],days.map(d=>[d.key,d.count,d.amount,rows.filter(r=>r.status==="Selesai"&&new Date(r.started_at).toISOString().slice(0,10)===d.key).reduce((sum,r)=>sum+r.duration_minutes,0)]))}>PDF</button></div></div>
     {!isSupabaseConfigured && <div className="mode-notice">Mode demo: angka di bawah merupakan simulasi.</div>}
     {error && <div className="app-alert error" role="alert">{error}</div>}
     <div className="range-row"><div className="filter-pills">{[{ value: "7", label: "7 hari" }, { value: "30", label: "30 hari" }, { value: "90", label: "3 bulan" }].map(x => <button key={x.value} className={range === x.value ? "selected" : ""} onClick={() => setRange(x.value)}>{x.label}</button>)}</div><span className="report-range">{loading ? "Memuat…" : scoped.length + " sesi"}</span></div>
