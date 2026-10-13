@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { demoUnits, loadDashboardUnits, loadRatePlans, subscribeToRentalChanges, startSession, extendSession, pauseSession, resumeSession, endSession, setUnitMaintenance, formatIDR, formatTimer, type RatePlan, type UnitView } from "./lib/rentalApi";
-import { isSupabaseConfigured, supabase } from "./lib/supabase";
+import { isSupabaseConfigured, supabase, supabaseConfigError } from "./lib/supabase";
 
 type IconName =
   | "grid"
@@ -287,7 +287,7 @@ export default function App() {
   const [detail, setDetail] = useState(false);
   const [liveUnits, setLiveUnits] = useState<UnitView[]>(demoUnits);
   const [ratePlans, setRatePlans] = useState<RatePlan[]>([]);
-  const [loadError, setLoadError] = useState("");
+  const [loadError, setLoadError] = useState(supabaseConfigError);
   const [notice, setNotice] = useState("");
   const mode = isSupabaseConfigured ? "supabase" : "demo";
   useEffect(() => {
