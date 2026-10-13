@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import {
   deactivateManagedRate, deactivateManagedUnit, formatIDR, inviteManagedMember,
-  loadHistorySessions, loadManagedMembers, loadManagedRates, loadManagedUnits,
-  saveManagedRate, saveManagedUnit, updateManagedMember,
+  loadAuditEntries, loadBusinessSettings, loadHistorySessions, loadManagedMembers,
+  loadManagedRates, loadManagedUnits, saveBusinessSettings, saveManagedRate,
+  saveManagedUnit, updateManagedMember, type AuditRecord, type BusinessSettings,
   type HistoryRecord, type ManagedRate, type ManagedUnit,
 } from "./lib/rentalApi";
 import { isSupabaseConfigured } from "./lib/supabase";
@@ -239,3 +240,95 @@ export function ManagePageV2({ type }: { type: ManagerPage }) {
     </aside></div>}
   </div>;
 }
+
+export function AuditPageV2() {
+  const [rows,setRows]=useState<AuditRecord[]>([]);
+  const [loading,setLoading]=useState(true);
+  const [error,setError]=useState("");
+  const [search,setSearch]=useState("");
+  useEffect(()=>{
+    let alive=true;
+    loadAuditEntries().then(data=>{if(alive)setRows(data);})
+      .catch(e=>{if(alive)setError(e instanceof Error?e.message:"Audit log gagal dimuat.");})
+      .finally(()=>{if(alive)setLoading(false);});
+    return()=>{alive=false;};
+  },[]);
+  const visible=rows.filter(r=>(r.action+" "+r.entity+" "+(r.entity_id||"")+" "+r.details).toLowerCase().includes(search.toLowerCase()));
+  const label=(action:string)=>{
+    const map:Record<string,string>={
+      "session.started":"Sesi dimulai","session.ended":"Sesi diakhiri","session.extended":"Tambah waktu",
+      "session.role_changed":"Role diubah","member.invited":"Pengguna diundang",
+      "member.role_changed":"Role pengguna diubah","member.deactivated":"Pengguna dinonaktifkan",
+      "member.activated":"Pengguna diaktifkan","unit.maintenance_changed":"Status unit diubah"
+    };
+    return map[action]||action.replace(/[._]/g," ");
+  };
+  const exportRows=()=>exportCsv("rentalps-audit-log.csv",
+    ["Waktu","Aksi","Entitas","ID entitas","User ID","Alasan","Detail"],
+    visible.map(r=>[prettyTime(r.created_at),r.action,r.entity,r.entity_id,r.user_id,r.reason,r.details]));
+  return <div className="page-content">
+    <div className="page-heading"><div><h2>Log Audit</h2><p>Rekam jejak perubahan penting dan aktivitas operasional.</p></div><button className="btn btn-secondary" onClick={exportRows}>Ekspor CSV</button></div>
+    {!isSupabaseConfigured&&<div className="mode-notice">Mode demo: aktivitas di bawah hanya contoh.</div>}
+    {error&&<div className="app-alert error" role="alert">{error}</div>}
+    <div className="panel filters"><label><span>Cari aktivitas</span><div className="field"><input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Aksi, entitas, atau detail"/></div></label><span className="history-count">{visible.length} aktivitas</span></div>
+    <div className="panel audit-list">{loading?<div className="empty-cell">Memuat log audit…</div>:visible.length===0?<div className="empty-cell">Belum ada aktivitas yang cocok.</div>:visible.map((r,i)=><div className="audit-row" key={r.id}><span className={"audit-icon a"+(i%5)}>◷</span><time>{prettyTime(r.created_at)}</time><div><b>{label(r.action)}</b><span>{r.entity}{r.entity_id?" · "+r.entity_id:""}</span><small>{r.details||r.reason||("User: "+(r.user_id||"sistem"))}</small></div></div>)}</div>
+  </div>;
+}
+
+export function SettingsPageV2({dark,setDark}:{dark:boolean;setDark:(v:boolean)=>void}) {
+  const [form,setForm]=useState({name:"RentalPS",phone:"",address:"",timezone:"Asia/Jakarta",footer:"Terima kasih telah bermain."});
+  const [loading,setLoading]=useState(true);
+  const [busy,setBusy]=useState(false);
+  const [error,setError]=useState("");
+  const [notice,setNotice]=useState("");
+  const field=(key:keyof typeof form,value:string)=>setForm(prev=>({...prev,[key]:value}));
+  useEffect(()=>{
+    let alive=true;
+    loadBusinessSettings().then((data:BusinessSettings)=>{
+      if(!alive)return;
+      const profile=(data.settings?.profile||{}) as Record<string,string>;
+      const receipt=(data.settings?.receipt||{}) as Record<string,string>;
+      setForm({name:data.name||"RentalPS",phone:profile.phone||"",address:profile.address||"",timezone:data.timezone||"Asia/Jakarta",footer:receipt.footer||"Terima kasih telah bermain."});
+    }).catch(e=>{if(alive)setError(e instanceof Error?e.message:"Pengaturan gagal dimuat.");})
+      .finally(()=>{if(alive)setLoading(false);});
+    return()=>{alive=false;};
+  },[]);
+  const submit=async(e:FormEvent)=>{
+    e.preventDefault();setBusy(true);setError("");setNotice("");
+    try{
+      const previous=await loadBusinessSettings();
+      const input:BusinessSettings={...previous,name:form.name.trim(),timezone:form.timezone,currency:"IDR",settings:{
+        ...(previous.settings||{}),
+        profile:{...(previous.settings?.profile||{}),phone:form.phone.trim(),address:form.address.trim()},
+        receipt:{...(previous.settings?.receipt||{}),footer:form.footer.trim()}
+      }};
+      if(!input.name)throw new Error("Nama usaha wajib diisi.");
+      await saveBusinessSettings(input);
+      setNotice("Pengaturan tersimpan.");
+    }catch(e){setError(e instanceof Error?e.message:"Pengaturan gagal disimpan.");}
+    finally{setBusy(false);}
+  };
+  return <div className="page-content settings-page">
+    <div className="page-heading"><div><h2>Pengaturan</h2><p>Profil usaha dan preferensi aplikasi.</p></div><button className="btn btn-primary" type="button" disabled={busy||loading} onClick={()=>document.getElementById("rentalps-settings-form")?.requestSubmit()}>{busy?"Menyimpan…":"Simpan"}</button></div>
+    {!isSupabaseConfigured&&<div className="mode-notice">Mode demo: pengaturan tersimpan lokal di browser, bukan database bersama.</div>}
+    {error&&<div className="app-alert error" role="alert">{error}</div>}
+    {notice&&<div className="app-alert" role="status">{notice}</div>}
+    <div className="settings-grid">
+      <div className="panel settings-nav"><button className="active" type="button">Profil rental</button><button type="button">Pembayaran & struk</button><button type="button">Tampilan</button></div>
+      <form id="rentalps-settings-form" className="panel settings-form" onSubmit={submit}>
+        <h3>Profil rental</h3><p>Informasi yang digunakan pada bukti pembayaran.</p>
+        {loading?<div className="empty-cell">Memuat pengaturan…</div>:<div className="form-grid">
+          <label><span>Nama rental</span><input required maxLength={100} value={form.name} onChange={e=>field("name",e.target.value)}/></label>
+          <label><span>Nomor telepon</span><input maxLength={40} value={form.phone} onChange={e=>field("phone",e.target.value)} placeholder="08xx xxxx xxxx"/></label>
+          <label className="span-2"><span>Alamat</span><textarea maxLength={250} value={form.address} onChange={e=>field("address",e.target.value)} placeholder="Alamat rental"/></label>
+          <label><span>Zona waktu</span><select value={form.timezone} onChange={e=>field("timezone",e.target.value)}><option value="Asia/Jakarta">WIB (UTC+7)</option><option value="Asia/Makassar">WITA (UTC+8)</option><option value="Asia/Jayapura">WIT (UTC+9)</option></select></label>
+          <label><span>Mata uang</span><input value="Rupiah (IDR)" disabled readOnly/></label>
+          <label className="span-2"><span>Catatan bawah struk</span><input maxLength={160} value={form.footer} onChange={e=>field("footer",e.target.value)}/></label>
+        </div>}
+        <hr/><h3>Tampilan</h3><div className="theme-options"><button type="button" className={!dark?"active":""} onClick={()=>setDark(false)}><span className="theme-preview light"><i/><i/><i/></span><b>☀ Mode terang</b></button><button type="button" className={dark?"active":""} onClick={()=>setDark(true)}><span className="theme-preview dark"><i/><i/><i/></span><b>☾ Mode gelap</b></button></div>
+        <div className="drawer-actions"><button type="submit" className="btn btn-primary" disabled={busy||loading}>{busy?"Menyimpan…":"Simpan pengaturan"}</button></div>
+      </form>
+    </div>
+  </div>;
+}
+
