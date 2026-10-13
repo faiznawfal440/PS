@@ -3,7 +3,7 @@ import {
   deactivateManagedRate, deactivateManagedUnit, formatIDR, inviteManagedMember,
   loadAuditEntries, loadBusinessSettings, loadHistorySessions, loadManagedMembers, settleSessionPayment,
   loadManagedRates, loadManagedUnits, loadRevenuePayments, resendManagedInvite, saveBusinessSettings, saveManagedRate,
-  saveManagedUnit, updateManagedMember, type AuditRecord, type BusinessSettings,
+  saveManagedUnit, updateManagedMember, type AuditRecord, type BusinessSettings, type PaymentMethod,
   type HistoryRecord, type ManagedRate, type ManagedUnit, type RevenuePayment,
 } from "./lib/rentalApi";
 import { isSupabaseConfigured } from "./lib/supabase";
@@ -57,7 +57,7 @@ function exportPdf(filename:string,title:string,headers:string[],rows:Array<Arra
 const prettyTime = (value: string | null) => value ? new Date(value).toLocaleString("id-ID", { dateStyle: "short", timeStyle: "short" }) : "—";
 const durationText = (mins: number) => Math.floor(mins / 60) > 0 ? Math.floor(mins / 60) + "j " + (mins % 60) + "m" : (mins % 60) + "m";
 
-export function HistoryPageV2() {
+export function HistoryPageV2({onReceipt,paymentMethods}:{onReceipt:(sessionId:string)=>void;paymentMethods:PaymentMethod[]}) {
   const [rows, setRows] = useState<HistoryRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -65,9 +65,10 @@ export function HistoryPageV2() {
   const [status, setStatus] = useState("Semua");
   const [page, setPage] = useState(1);
   const [settling,setSettling]=useState<HistoryRecord|null>(null);
-  const [settleMethod,setSettleMethod]=useState<"cash"|"transfer"|"qris"|"other">("cash");
+  const [settleMethod,setSettleMethod]=useState<PaymentMethod>(paymentMethods[0]||"cash");
   const [settleReceived,setSettleReceived]=useState("");
   const [settleBusy,setSettleBusy]=useState(false);
+  useEffect(()=>{if(paymentMethods.length>0&&!paymentMethods.includes(settleMethod))setSettleMethod(paymentMethods[0]);},[paymentMethods,settleMethod]);
   useEffect(() => {
     let alive = true;
     loadHistorySessions().then(data => { if (alive) setRows(data); })
@@ -103,10 +104,10 @@ export function HistoryPageV2() {
     {!isSupabaseConfigured && <div className="mode-notice">Mode demo: data belum berasal dari database rental.</div>}
     {error && <div className="app-alert error" role="alert">{error}</div>}
     <div className="panel filters"><label><span>Cari sesi</span><div className="field"><input value={search} onChange={e => { setSearch(e.target.value); setPage(1); }} placeholder="ID sesi, pelanggan, atau unit" /></div></label><label><span>Status</span><select value={status} onChange={e => { setStatus(e.target.value); setPage(1); }}><option>Semua</option><option>Selesai</option><option>Aktif</option><option>Dijeda</option><option>Overtime</option><option>Dibatalkan</option></select></label><span className="history-count">{filtered.length} sesi</span></div>
-    <div className="panel table-wrap"><table><thead><tr>{["ID Sesi", "Pelanggan", "Unit", "Mulai", "Durasi", "Total", "Status", "Pembayaran"].map(h => <th key={h}>{h}</th>)}</tr></thead><tbody>
-      {loading ? <tr><td colSpan={8} className="empty-cell">Memuat transaksi…</td></tr> : visible.length === 0 ? <tr><td colSpan={8} className="empty-cell">Tidak ada transaksi untuk filter ini.</td></tr> : visible.map(r => <tr key={r.id}><td className="session-id">{r.id.slice(0, 14)}</td><td>{r.customer}</td><td>{r.unit}</td><td>{prettyTime(r.started_at)}</td><td>{durationText(r.duration_minutes)}</td><td>{formatIDR(r.total)}</td><td><span className={"table-status " + r.status.toLowerCase()}>{r.status}</span></td><td>{r.payment_status === "paid" ? "Lunas" : r.payment_status === "partial" ? "Sebagian" : "Belum dibayar"}{r.payment_method !== "—" ? " · " + r.payment_method.toUpperCase() : ""}</td></tr>)}
+    <div className="panel table-wrap"><table><thead><tr>{["ID Sesi", "Pelanggan", "Unit", "Mulai", "Durasi", "Total", "Status", "Pembayaran", "Struk"].map(h => <th key={h}>{h}</th>)}</tr></thead><tbody>
+      {loading ? <tr><td colSpan={9} className="empty-cell">Memuat transaksi…</td></tr> : visible.length === 0 ? <tr><td colSpan={9} className="empty-cell">Tidak ada transaksi untuk filter ini.</td></tr> : visible.map(r => <tr key={r.id}><td className="session-id">{r.id.slice(0, 14)}</td><td>{r.customer}</td><td>{r.unit}</td><td>{prettyTime(r.started_at)}</td><td>{durationText(r.duration_minutes)}</td><td>{formatIDR(r.total)}</td><td><span className={"table-status " + r.status.toLowerCase()}>{r.status}</span></td><td>{r.payment_status === "paid" ? "Lunas" : r.payment_status === "partial" ? "Sebagian" : "Belum dibayar"}{r.payment_method !== "—" ? " · " + r.payment_method.toUpperCase() : ""}</td><td>{isSupabaseConfigured&&r.ended_at&&<button type="button" className="btn btn-secondary" onClick={()=>onReceipt(r.id)}>Struk</button>}</td></tr>)}
     </tbody></table><div className="table-footer"><span>{filtered.length === 0 ? 0 : (page - 1) * size + 1}–{Math.min(page * size, filtered.length)} dari {filtered.length} sesi</span><div><button disabled={page <= 1} onClick={() => setPage(n => Math.max(1, n - 1))}>‹</button><button className="active">{page}/{pages}</button><button disabled={page >= pages} onClick={() => setPage(n => Math.min(pages, n + 1))}>›</button></div></div></div>
-    {settling&&<div className="modal-backdrop" onClick={()=>setSettling(null)}><form className="modal" onClick={e=>e.stopPropagation()} onSubmit={e=>void submitSettlement(e)}><div className="modal-head"><div><span className="eyebrow">{settling.id.slice(0,12)}</span><h2>Pelunasan transaksi</h2></div><button type="button" className="icon-btn" onClick={()=>setSettling(null)}>×</button></div><div className="receipt-lines"><div><span>Total tagihan</span><b>{formatIDR(settling.total)}</b></div><div><span>Sudah terbayar</span><b>{formatIDR(settling.paid_amount)}</b></div><div className="grand"><span>Sisa tagihan</span><strong>{formatIDR(Math.max(0,settling.total-settling.paid_amount))}</strong></div></div><label><span>Metode pembayaran</span><select value={settleMethod} onChange={e=>setSettleMethod(e.target.value as "cash"|"transfer"|"qris"|"other")}>{[{v:"cash",l:"Tunai"},{v:"transfer",l:"Transfer"},{v:"qris",l:"QRIS"},{v:"other",l:"Lainnya"}].map(x=><option key={x.v} value={x.v}>{x.l}</option>)}</select></label><label><span>Uang diterima (Rp)</span><input type="number" min="1" required value={settleReceived} onChange={e=>setSettleReceived(e.target.value)}/></label><div className="change"><span>Perkiraan kembalian</span><b>{formatIDR(Math.max(0,Number(settleReceived||0)-(settling.total-settling.paid_amount)))}</b></div><div className="modal-actions"><button type="button" className="btn btn-secondary" onClick={()=>setSettling(null)}>Batal</button><button className="btn btn-primary" disabled={settleBusy||Number(settleReceived)<=0}>{settleBusy?"Menyimpan…":"Simpan pelunasan"}</button></div></form></div>}
+    {settling&&<div className="modal-backdrop" onClick={()=>setSettling(null)}><form className="modal" onClick={e=>e.stopPropagation()} onSubmit={e=>void submitSettlement(e)}><div className="modal-head"><div><span className="eyebrow">{settling.id.slice(0,12)}</span><h2>Pelunasan transaksi</h2></div><button type="button" className="icon-btn" onClick={()=>setSettling(null)}>×</button></div><div className="receipt-lines"><div><span>Total tagihan</span><b>{formatIDR(settling.total)}</b></div><div><span>Sudah terbayar</span><b>{formatIDR(settling.paid_amount)}</b></div><div className="grand"><span>Sisa tagihan</span><strong>{formatIDR(Math.max(0,settling.total-settling.paid_amount))}</strong></div></div><label><span>Metode pembayaran</span><select value={settleMethod} onChange={e=>setSettleMethod(e.target.value as "cash"|"transfer"|"qris"|"other")}>{paymentMethods.map(m=><option key={m} value={m}>{m==="cash"?"Tunai":m==="transfer"?"Transfer":m==="qris"?"QRIS":"Lainnya"}</option>)}</select></label><label><span>Uang diterima (Rp)</span><input type="number" min="1" required value={settleReceived} onChange={e=>setSettleReceived(e.target.value)}/></label><div className="change"><span>Perkiraan kembalian</span><b>{formatIDR(Math.max(0,Number(settleReceived||0)-(settling.total-settling.paid_amount)))}</b></div><div className="modal-actions"><button type="button" className="btn btn-secondary" onClick={()=>setSettling(null)}>Batal</button><button className="btn btn-primary" disabled={settleBusy||Number(settleReceived)<=0}>{settleBusy?"Menyimpan…":"Simpan pelunasan"}</button></div></form></div>}
   </div>;
 }
 
@@ -336,20 +337,35 @@ export function AuditPageV2() {
   </div>;
 }
 
-export function SettingsPageV2({dark,setDark}:{dark:boolean;setDark:(v:boolean)=>void}) {
-  const [form,setForm]=useState({name:"RentalPS",phone:"",address:"",timezone:"Asia/Jakarta",footer:"Terima kasih telah bermain."});
+export function SettingsPageV2({dark,setDark,onSaved}:{dark:boolean;setDark:(v:boolean)=>void;onSaved?:(settings:BusinessSettings)=>void}) {
+  const [form,setForm]=useState({name:"RentalPS",phone:"",address:"",timezone:"Asia/Jakarta"});
+  const [paymentMethods,setPaymentMethods]=useState<PaymentMethod[]>(["cash","transfer","qris","other"]);
+  const [paperWidth,setPaperWidth]=useState<"58"|"80">("80");
+  const [showPhone,setShowPhone]=useState(true);
+  const [showAddress,setShowAddress]=useState(true);
+  const [footer,setFooter]=useState("Terima kasih telah bermain.");
+  const [section,setSection]=useState<"profile"|"payments"|"appearance">("profile");
   const [loading,setLoading]=useState(true);
   const [busy,setBusy]=useState(false);
   const [error,setError]=useState("");
   const [notice,setNotice]=useState("");
   const field=(key:keyof typeof form,value:string)=>setForm(prev=>({...prev,[key]:value}));
+  const options:[PaymentMethod,string][]=[["cash","Tunai"],["transfer","Transfer bank"],["qris","QRIS"],["other","Metode lainnya"]];
   useEffect(()=>{
     let alive=true;
     loadBusinessSettings().then((data:BusinessSettings)=>{
       if(!alive)return;
       const profile=(data.settings?.profile||{}) as Record<string,string>;
-      const receipt=(data.settings?.receipt||{}) as Record<string,string>;
-      setForm({name:data.name||"RentalPS",phone:profile.phone||"",address:profile.address||"",timezone:data.timezone||"Asia/Jakarta",footer:receipt.footer||"Terima kasih telah bermain."});
+      const receipt=(data.settings?.receipt||{}) as Record<string,any>;
+      const payment=(data.settings?.payment||{}) as Record<string,any>;
+      const appearance=(data.settings?.appearance||{}) as Record<string,any>;
+      setForm({name:data.name||"RentalPS",phone:profile.phone||"",address:profile.address||"",timezone:data.timezone||"Asia/Jakarta"});
+      setFooter(String(receipt.footer||"Terima kasih telah bermain."));
+      setPaperWidth(String(receipt.paper_width||"80")==="58"?"58":"80");
+      setShowPhone(receipt.show_phone!==false);
+      setShowAddress(receipt.show_address!==false);
+      setPaymentMethods(Array.isArray(payment.methods)&&payment.methods.length?payment.methods.filter((m:any)=>options.some(([key])=>key===m)) as PaymentMethod[]:["cash","transfer","qris","other"]);
+      setDark(appearance.theme==="dark");
     }).catch(e=>{if(alive)setError(e instanceof Error?e.message:"Pengaturan gagal dimuat.");})
       .finally(()=>{if(alive)setLoading(false);});
     return()=>{alive=false;};
@@ -357,39 +373,80 @@ export function SettingsPageV2({dark,setDark}:{dark:boolean;setDark:(v:boolean)=
   const submit=async(e:FormEvent)=>{
     e.preventDefault();setBusy(true);setError("");setNotice("");
     try{
+      if(paymentMethods.length===0)throw new Error("Aktifkan minimal satu metode pembayaran.");
       const previous=await loadBusinessSettings();
       const input:BusinessSettings={...previous,name:form.name.trim(),timezone:form.timezone,currency:"IDR",settings:{
         ...(previous.settings||{}),
         profile:{...(previous.settings?.profile||{}),phone:form.phone.trim(),address:form.address.trim()},
-        receipt:{...(previous.settings?.receipt||{}),footer:form.footer.trim()}
+        payment:{...(previous.settings?.payment||{}),methods:paymentMethods},
+        receipt:{...(previous.settings?.receipt||{}),footer:footer.trim(),paper_width:paperWidth,show_phone:showPhone,show_address:showAddress},
+        appearance:{...(previous.settings?.appearance||{}),theme:dark?"dark":"light"}
       }};
       if(!input.name)throw new Error("Nama usaha wajib diisi.");
       await saveBusinessSettings(input);
-      setNotice("Pengaturan tersimpan.");
+      onSaved?.(input);
+      setNotice("Pengaturan berhasil disimpan dan berlaku untuk usaha ini.");
     }catch(e){setError(e instanceof Error?e.message:"Pengaturan gagal disimpan.");}
     finally{setBusy(false);}
   };
+  const tab=(key:typeof section,label:string)=><button type="button" className={section===key?"active":""} onClick={()=>{setSection(key);setError("");setNotice("");}}>{label}</button>;
   return <div className="page-content settings-page">
-    <div className="page-heading"><div><h2>Pengaturan</h2><p>Profil usaha dan preferensi aplikasi.</p></div><button className="btn btn-primary" type="button" disabled={busy||loading} onClick={()=>document.querySelector<HTMLFormElement>("#rentalps-settings-form")?.requestSubmit()}>{busy?"Menyimpan…":"Simpan"}</button></div>
+    <div className="page-heading"><div><h2>Pengaturan</h2><p>Profil usaha, metode pembayaran, struk transaksi, dan tampilan aplikasi.</p></div><button className="btn btn-primary" type="button" disabled={busy||loading} onClick={()=>document.querySelector<HTMLFormElement>("#rentalps-settings-form")?.requestSubmit()}>{busy?"Menyimpan…":"Simpan pengaturan"}</button></div>
     {!isSupabaseConfigured&&<div className="mode-notice">Mode demo: pengaturan tersimpan lokal di browser, bukan database bersama.</div>}
     {error&&<div className="app-alert error" role="alert">{error}</div>}
     {notice&&<div className="app-alert" role="status">{notice}</div>}
     <div className="settings-grid">
-      <div className="panel settings-nav"><button className="active" type="button">Profil rental</button><button type="button">Pembayaran & struk</button><button type="button">Tampilan</button></div>
+      <div className="panel settings-nav">
+        {tab("profile","Profil rental")}
+        {tab("payments","Pembayaran & struk")}
+        {tab("appearance","Tampilan")}
+      </div>
       <form id="rentalps-settings-form" className="panel settings-form" onSubmit={submit}>
-        <h3>Profil rental</h3><p>Informasi yang digunakan pada bukti pembayaran.</p>
-        {loading?<div className="empty-cell">Memuat pengaturan…</div>:<div className="form-grid">
-          <label><span>Nama rental</span><input required maxLength={100} value={form.name} onChange={e=>field("name",e.target.value)}/></label>
-          <label><span>Nomor telepon</span><input maxLength={40} value={form.phone} onChange={e=>field("phone",e.target.value)} placeholder="08xx xxxx xxxx"/></label>
-          <label className="span-2"><span>Alamat</span><textarea maxLength={250} value={form.address} onChange={e=>field("address",e.target.value)} placeholder="Alamat rental"/></label>
-          <label><span>Zona waktu</span><select value={form.timezone} onChange={e=>field("timezone",e.target.value)}><option value="Asia/Jakarta">WIB (UTC+7)</option><option value="Asia/Makassar">WITA (UTC+8)</option><option value="Asia/Jayapura">WIT (UTC+9)</option></select></label>
-          <label><span>Mata uang</span><input value="Rupiah (IDR)" disabled readOnly/></label>
-          <label className="span-2"><span>Catatan bawah struk</span><input maxLength={160} value={form.footer} onChange={e=>field("footer",e.target.value)}/></label>
-        </div>}
-        <hr/><h3>Tampilan</h3><div className="theme-options"><button type="button" className={!dark?"active":""} onClick={()=>setDark(false)}><span className="theme-preview light"><i/><i/><i/></span><b>☀ Mode terang</b></button><button type="button" className={dark?"active":""} onClick={()=>setDark(true)}><span className="theme-preview dark"><i/><i/><i/></span><b>☾ Mode gelap</b></button></div>
-        <div className="drawer-actions"><button type="submit" className="btn btn-primary" disabled={busy||loading}>{busy?"Menyimpan…":"Simpan pengaturan"}</button></div>
+        {loading?<div className="empty-cell">Memuat pengaturan…</div>:<>
+          {section==="profile"&&<>
+            <h3>Profil rental</h3><p>Informasi ini digunakan pada kepala struk pembayaran.</p>
+            <div className="form-grid">
+              <label><span>Nama rental</span><input required maxLength={100} value={form.name} onChange={e=>field("name",e.target.value)}/></label>
+              <label><span>Nomor telepon</span><input maxLength={40} value={form.phone} onChange={e=>field("phone",e.target.value)} placeholder="08xx xxxx xxxx"/></label>
+              <label className="span-2"><span>Alamat</span><textarea maxLength={250} value={form.address} onChange={e=>field("address",e.target.value)} placeholder="Alamat rental"/></label>
+              <label><span>Zona waktu</span><select value={form.timezone} onChange={e=>field("timezone",e.target.value)}><option value="Asia/Jakarta">WIB (UTC+7)</option><option value="Asia/Makassar">WITA (UTC+8)</option><option value="Asia/Jayapura">WIT (UTC+9)</option></select></label>
+              <label><span>Mata uang</span><input value="Rupiah (IDR)" disabled readOnly/></label>
+            </div>
+          </>}
+          {section==="payments"&&<>
+            <h3>Pembayaran & struk</h3><p>Pilih metode yang tersedia di kasir. Pengaturan ini disimpan ke database usaha.</p>
+            <div className="settings-choice-list">
+              {options.map(([key,label])=><label key={key}><input type="checkbox" checked={paymentMethods.includes(key)} onChange={e=>setPaymentMethods(current=>e.target.checked?[...current,key]:current.filter(value=>value!==key))}/><span><b>{label}</b><small>{key==="cash"?"Tunai dan penghitungan kembalian":key==="transfer"?"Pembayaran melalui transfer bank":key==="qris"?"Pembayaran melalui QRIS (pencatatan manual)": "Metode pembayaran lain"}</small></span></label>)}
+            </div>
+            <hr/>
+            <h3>Format cetak struk</h3>
+            <div className="form-grid">
+              <label><span>Lebar kertas printer</span><select value={paperWidth} onChange={e=>setPaperWidth(e.target.value as "58"|"80")}><option value="58">58 mm</option><option value="80">80 mm</option></select></label>
+              <div className="settings-toggle-stack">
+                <label><input type="checkbox" checked={showPhone} onChange={e=>setShowPhone(e.target.checked)}/><span>Tampilkan telepon pada struk</span></label>
+                <label><input type="checkbox" checked={showAddress} onChange={e=>setShowAddress(e.target.checked)}/><span>Tampilkan alamat pada struk</span></label>
+              </div>
+              <label className="span-2"><span>Catatan bawah struk</span><input maxLength={160} value={footer} onChange={e=>setFooter(e.target.value)} placeholder="Terima kasih telah bermain."/></label>
+            </div>
+            <div className="receipt-preview-mini">
+              <b>{form.name||"Nama rental"}</b>
+              {showPhone&&form.phone&&<span>{form.phone}</span>}
+              {showAddress&&form.address&&<span>{form.address}</span>}
+              <hr/><b>STRUK RENTAL + F&B</b><span>Biaya rental</span><span>Pesanan makanan/minuman</span><strong>Total pembayaran</strong><hr/><span>{footer||"Terima kasih telah bermain."}</span>
+              <small>Pratinjau · kertas {paperWidth} mm</small>
+            </div>
+          </>}
+          {section==="appearance"&&<>
+            <h3>Tampilan aplikasi</h3><p>Tema diterapkan langsung dan disimpan untuk usaha ini saat menekan Simpan pengaturan.</p>
+            <div className="theme-options">
+              <button type="button" className={!dark?"active":""} onClick={()=>setDark(false)}><span className="theme-preview light"><i/><i/><i/></span><b>☀ Mode terang</b></button>
+              <button type="button" className={dark?"active":""} onClick={()=>setDark(true)}><span className="theme-preview dark"><i/><i/><i/></span><b>☾ Mode gelap</b></button>
+            </div>
+            <p className="help-text">Preferensi tema akan dipulihkan dari pengaturan usaha saat aplikasi dibuka kembali.</p>
+          </>}
+        </>}
+        <div className="drawer-actions"><button type="submit" className="btn btn-primary" disabled={busy||loading}>{busy?"Menyimpan…":"Simpan bagian ini"}</button></div>
       </form>
     </div>
   </div>;
 }
-

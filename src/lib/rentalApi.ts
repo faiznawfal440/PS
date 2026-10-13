@@ -14,7 +14,36 @@ export async function pauseSession(id:string){return requireSupabase().rpc('paus
 export async function resumeSession(id:string){return requireSupabase().rpc('resume_rental_session',{p_session_id:id});}
 export async function endSession(i:{sessionId:string;method:'cash'|'transfer'|'qris'|'other';receivedAmount:number}){return requireSupabase().rpc('end_rental_session',{p_session_id:i.sessionId,p_payment_method:i.method,p_received_amount:i.receivedAmount});}
 export async function setUnitMaintenance(id:string,enabled:boolean,note=''){const {businessId}=await currentBusinessContext();const {data,error}=await requireSupabase().from('units').update({status:enabled?'maintenance':'available',notes:note||null}).eq('id',id).eq('business_id',businessId).select('id');if(error)throw error;if(!data?.length)throw new Error('Unit tidak ditemukan atau akses ditolak.');}
-export function subscribeToRentalChanges(cb:()=>void){if(!isSupabaseConfigured)return ()=>undefined;const client=requireSupabase();let disposed=false;let channel:any=null;void currentBusinessContext().then(({businessId})=>{if(disposed)return;const filter=`business_id=eq.${businessId}`;channel=client.channel(`rentalps-live-updates-${businessId}`).on('postgres_changes',{event:'*',schema:'public',table:'units',filter},cb).on('postgres_changes',{event:'*',schema:'public',table:'sessions',filter},cb).on('postgres_changes',{event:'*',schema:'public',table:'payments',filter},cb).subscribe();}).catch((error)=>{if(!disposed)console.error('Gagal berlangganan perubahan rental Supabase.',error);});return ()=>{disposed=true;if(channel)void client.removeChannel(channel);};}
+export function subscribeToRentalChanges(cb:()=>void){
+  if(!isSupabaseConfigured)return ()=>undefined;
+  const client=requireSupabase();let disposed=false;let channel:any=null;
+  void currentBusinessContext().then(({businessId})=>{
+    if(disposed)return;
+    const filter=`business_id=eq.${businessId}`;
+    channel=client.channel(`rentalps-live-updates-${businessId}`)
+      .on('postgres_changes',{event:'*',schema:'public',table:'units',filter},cb)
+      .on('postgres_changes',{event:'*',schema:'public',table:'sessions',filter},cb)
+      .on('postgres_changes',{event:'*',schema:'public',table:'payments',filter},cb)
+      .on('postgres_changes',{event:'*',schema:'public',table:'fb_orders',filter},cb)
+      .on('postgres_changes',{event:'*',schema:'public',table:'fb_payments',filter},cb)
+      .subscribe();
+  }).catch((error)=>{if(!disposed)console.error('Gagal berlangganan perubahan rental Supabase.',error);});
+  return ()=>{disposed=true;if(channel)void client.removeChannel(channel);};
+}
+export function subscribeToFnbChanges(cb:()=>void){
+  if(!isSupabaseConfigured)return ()=>undefined;
+  const client=requireSupabase();let disposed=false;let channel:any=null;
+  void currentBusinessContext().then(({businessId})=>{
+    if(disposed)return;
+    const filter=`business_id=eq.${businessId}`;
+    channel=client.channel(`rentalps-fnb-live-updates-${businessId}`)
+      .on('postgres_changes',{event:'*',schema:'public',table:'fb_products',filter},cb)
+      .on('postgres_changes',{event:'*',schema:'public',table:'fb_orders',filter},cb)
+      .on('postgres_changes',{event:'*',schema:'public',table:'fb_payments',filter},cb)
+      .subscribe();
+  }).catch((error)=>{if(!disposed)console.error('Gagal berlangganan perubahan F&B Supabase.',error);});
+  return ()=>{disposed=true;if(channel)void client.removeChannel(channel);};
+}
 
 export type ManagedUnit = {
   id?: string; code: string; name: string; console_type: string; room: string;
@@ -305,6 +334,80 @@ export async function payFbOrder(input:{orderId:string;method:'cash'|'transfer'|
   return requireSupabase().rpc('pay_fb_order',{p_order_id:input.orderId,p_payment_method:input.method,p_received_amount:input.receivedAmount});
 }
 export async function cancelFbOrder(orderId:string){return requireSupabase().rpc('cancel_fb_order',{p_order_id:orderId});}
+export type PaymentMethod='cash'|'transfer'|'qris'|'other';
+export type SessionFnbSummary={total:number;paid:number;outstanding:number;orders:Array<{id:string;order_no:string;total:number;paid_amount:number;outstanding:number}>};
+export async function loadSessionFnbSummary(sessionId:string):Promise<SessionFnbSummary>{
+  if(!isSupabaseConfigured)return {total:0,paid:0,outstanding:0,orders:[]};
+  const {businessId}=await currentBusinessContext();
+  const {data,error}=await requireSupabase().from('fb_orders')
+    .select('id,order_no,total,status,fb_payments(amount)')
+    .eq('business_id',businessId).eq('session_id',sessionId).neq('status','cancelled')
+    .order('created_at',{ascending:true});
+  if(error)throw error;
+  const orders:SessionFnbSummary["orders"]=(data??[]).map((o:any):SessionFnbSummary["orders"][number]=>{
+    const paid_amount=(o.fb_payments??[]).reduce((sum:number,p:any)=>sum+Number(p.amount||0),0);
+    const total=Number(o.total||0);
+    return {id:o.id,order_no:o.order_no,total,paid_amount,outstanding:Math.max(0,total-paid_amount)};
+  });
+  return {total:orders.reduce((sum,o)=>sum+o.total,0),paid:orders.reduce((sum,o)=>sum+o.paid_amount,0),outstanding:orders.reduce((sum,o)=>sum+o.outstanding,0),orders};
+}
+
+export type SessionReceiptItem={product_name:string;quantity:number;unit_price:number;line_total:number};
+export type SessionReceiptOrder={id:string;orderNo:string;total:number;paidAmount:number;outstanding:number;items:SessionReceiptItem[]};
+export type ReceiptBusinessSettings={name:string;phone:string;address:string;footer:string;showPhone:boolean;showAddress:boolean;paperWidth:'58'|'80'};
+export type SessionReceiptData={
+  id:string;unit:string;customer:string;started:string;ended:string;total:number;rentalTotal:number;fnbTotal:number;
+  fnbOrders:SessionReceiptOrder[];paidAmount:number;outstanding:number;method:PaymentMethod|string;
+  received:number;change:number;paidAt:string;business:ReceiptBusinessSettings;
+};
+export async function loadSessionReceipt(sessionId:string):Promise<SessionReceiptData>{
+  if(!isSupabaseConfigured)throw new Error('Struk dari database hanya tersedia saat Supabase terhubung.');
+  const {businessId}=await currentBusinessContext();
+  const client=requireSupabase();
+  const [sessionResult,ordersResult,businessResult]=await Promise.all([
+    client.from('sessions').select('id,customer_name,started_at,ended_at,total,subtotal,units(name,code),payments(method,amount,received_amount,change_amount,paid_at)')
+      .eq('id',sessionId).eq('business_id',businessId).maybeSingle(),
+    client.from('fb_orders').select('id,order_no,total,status,created_at,fb_order_items(product_name,quantity,unit_price,line_total),fb_payments(method,amount,received_amount,change_amount,paid_at)')
+      .eq('business_id',businessId).eq('session_id',sessionId).neq('status','cancelled').order('created_at',{ascending:true}),
+    client.from('businesses').select('name,timezone,settings').eq('id',businessId).single()
+  ]);
+  if(sessionResult.error)throw sessionResult.error;
+  if(ordersResult.error)throw ordersResult.error;
+  if(businessResult.error)throw businessResult.error;
+  const session=sessionResult.data as any;
+  if(!session)throw new Error('Sesi tidak ditemukan atau tidak termasuk usaha yang aktif.');
+  const business=businessResult.data as any;
+  const timezone=business.timezone||'Asia/Jakarta';
+  const dateTime=(value:string|null|undefined)=>value?new Intl.DateTimeFormat('id-ID',{day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit',timeZone:timezone,hour12:false}).format(new Date(value)):'—';
+  const timeOnly=(value:string|null|undefined)=>value?new Intl.DateTimeFormat('id-ID',{hour:'2-digit',minute:'2-digit',timeZone:timezone,hour12:false}).format(new Date(value)):'—';
+  const fnbOrders:SessionReceiptOrder[]=(ordersResult.data??[]).map((o:any)=>{
+    const paid=(o.fb_payments??[]).reduce((sum:number,p:any)=>sum+Number(p.amount||0),0);
+    return {id:o.id,orderNo:o.order_no,total:Number(o.total||0),paidAmount:paid,outstanding:Math.max(0,Number(o.total||0)-paid),
+      items:(o.fb_order_items??[]).map((i:any)=>({product_name:i.product_name,quantity:Number(i.quantity||0),unit_price:Number(i.unit_price||0),line_total:Number(i.line_total||0)}))};
+  });
+  const rentalPayments=(session.payments??[]).map((p:any)=>({...p,amount:Number(p.amount||0),received_amount:Number(p.received_amount||0),change_amount:Number(p.change_amount||0)}));
+  const fnbPayments=(ordersResult.data??[]).flatMap((o:any)=>(o.fb_payments??[]).map((p:any)=>({...p,amount:Number(p.amount||0),received_amount:Number(p.received_amount||0),change_amount:Number(p.change_amount||0)})));
+  const allPayments=[...rentalPayments,...fnbPayments].sort((a:any,b:any)=>new Date(a.paid_at||0).getTime()-new Date(b.paid_at||0).getTime());
+  const totalRental=Number(session.total??session.subtotal??0);
+  const totalFnb=fnbOrders.reduce((sum,o)=>sum+o.total,0);
+  const paidAmount=allPayments.reduce((sum:any,p:any)=>sum+p.amount,0);
+  const settings=business.settings||{};
+  const profile=settings.profile||{};
+  const receipt=settings.receipt||{};
+  const method=(allPayments.at(-1)?.method||'other') as PaymentMethod;
+  return {
+    id:session.id,unit:session.units?.name||session.units?.code||'Unit',customer:session.customer_name||'Pelanggan umum',
+    started:timeOnly(session.started_at),ended:timeOnly(session.ended_at),total:totalRental+totalFnb,rentalTotal:totalRental,fnbTotal:totalFnb,
+    fnbOrders,paidAmount,outstanding:Math.max(0,totalRental+totalFnb-paidAmount),method,
+    received:allPayments.reduce((sum:any,p:any)=>sum+p.received_amount,0),
+    change:allPayments.reduce((sum:any,p:any)=>sum+p.change_amount,0),
+    paidAt:dateTime(allPayments.at(-1)?.paid_at||session.ended_at||session.started_at),
+    business:{name:business.name||'RentalPS',phone:profile.phone||'',address:profile.address||'',
+      footer:receipt.footer||'Terima kasih telah bermain.',showPhone:receipt.show_phone!==false,
+      showAddress:receipt.show_address!==false,paperWidth:String(receipt.paper_width||'80')==='58'?'58':'80'}
+  };
+}
+
 
 export type ReservationRecord={id:string;customer_name:string;phone:string|null;unit_id:string|null;unit_name:string|null;starts_at:string;ends_at:string;status:'pending'|'confirmed'|'checked_in'|'cancelled'|'completed';notes:string|null};
 export async function loadReservations():Promise<ReservationRecord[]>{

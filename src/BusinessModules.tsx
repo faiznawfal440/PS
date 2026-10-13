@@ -1,14 +1,13 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import {
   cancelFbOrder, createFbOrder, createReservation, formatIDR, loadFbOrders,
-  loadFbProducts, loadManagedUnits, loadReservations, payFbOrder, saveFbProduct,
-  updateReservationStatus, type FbOrder, type FbProduct, type ManagedUnit,
+  loadFbProducts, loadManagedUnits, loadReservations, payFbOrder, saveFbProduct, subscribeToFnbChanges,
+  updateReservationStatus, type FbOrder, type FbProduct, type ManagedUnit, type PaymentMethod,
   type ReservationRecord,
 } from "./lib/rentalApi";
 import { isSupabaseConfigured } from "./lib/supabase";
 
 type Role="owner"|"admin"|"operator";
-type PaymentMethod="cash"|"transfer"|"qris"|"other";
 const methodLabel=(m:PaymentMethod)=>m==="cash"?"Tunai":m==="qris"?"QRIS":m==="transfer"?"Transfer":"Lainnya";
 const initialLocalProducts:FbProduct[]=[
  {id:"demo-drink-1",code:"AIR01",name:"Air Mineral",category:"Minuman",price:5000,stock_quantity:30,is_active:true},
@@ -17,7 +16,7 @@ const initialLocalProducts:FbProduct[]=[
  {id:"demo-snack-1",code:"SNK01",name:"Keripik",category:"Snack",price:5000,stock_quantity:null,is_active:true},
 ];
 
-export function FnbPageV2({role}:{role:Role}) {
+export function FnbPageV2({role,paymentMethods}:{role:Role;paymentMethods:PaymentMethod[]}) {
   const [products,setProducts]=useState<FbProduct[]>([]);
   const [orders,setOrders]=useState<FbOrder[]>([]);
   const [units,setUnits]=useState<ManagedUnit[]>([]);
@@ -34,7 +33,7 @@ export function FnbPageV2({role}:{role:Role}) {
   const [productForm,setProductForm]=useState({code:"",name:"",category:"Minuman",price:"5000",stock:""});
   const [paymentOrder,setPaymentOrder]=useState<FbOrder|null>(null);
   const [received,setReceived]=useState("");
-  const [method,setMethod]=useState<PaymentMethod>("cash");
+  const [method,setMethod]=useState<PaymentMethod>(paymentMethods[0]||"cash");
   const canManage=role==="owner"||role==="admin";
   async function refresh(){
     setLoading(true);setError("");
@@ -44,7 +43,15 @@ export function FnbPageV2({role}:{role:Role}) {
     }catch(e){setError(e instanceof Error?e.message:"Data F&B gagal dimuat.");}
     finally{setLoading(false);}
   }
-  useEffect(()=>{void refresh();},[]);
+  useEffect(()=>{
+    let alive=true;
+    void refresh();
+    const unsubscribe=subscribeToFnbChanges(()=>{if(alive)void refresh();});
+    return()=>{alive=false;unsubscribe();};
+  },[]);
+  useEffect(()=>{
+    if(paymentMethods.length>0&&!paymentMethods.includes(method))setMethod(paymentMethods[0]);
+  },[paymentMethods,method]);
   const filtered=products.filter(p=>(category==="Semua"||p.category===category)&&(p.name+" "+p.code).toLowerCase().includes(search.toLowerCase()));
   const cartItems=Object.entries(cart).filter(([,qty])=>qty>0).map(([id,quantity])=>({product:products.find(p=>p.id===id),quantity})).filter((x):x is {product:FbProduct;quantity:number}=>Boolean(x.product));
   const cartTotal=cartItems.reduce((sum,x)=>sum+x.product.price*x.quantity,0);
@@ -103,7 +110,7 @@ export function FnbPageV2({role}:{role:Role}) {
       </section>
       <aside className="panel fnb-cart"><div><h3>Pesanan baru</h3><p>{cartItems.length} jenis produk · {cartItems.reduce((n,x)=>n+x.quantity,0)} item</p></div>
         <label><span>Nama pelanggan (opsional)</span><input value={customer} onChange={e=>setCustomer(e.target.value)} placeholder="Nama pelanggan"/></label>
-        <label><span>Kaitkan ke unit (opsional)</span><select value={unitId} onChange={e=>setUnitId(e.target.value)}><option value="">Tanpa unit</option>{units.map(u=><option key={u.id} value={u.id}>{u.name} · {u.room}</option>)}</select></label>
+        <label><span>Kaitkan ke unit / sesi rental (opsional)</span><select value={unitId} onChange={e=>setUnitId(e.target.value)}><option value="">Tanpa unit</option>{units.map(u=><option key={u.id} value={u.id}>{u.name} · {u.room}</option>)}</select>{unitId&&<small className="help-text">Jika unit sedang dirental, pesanan otomatis masuk ke sesi aktif dan digabung ke struk akhir rental.</small>}</label>
         <div className="fnb-cart-lines">{cartItems.map(x=><div key={x.product.id}><span>{x.quantity} × {x.product.name}</span><b>{formatIDR(x.product.price*x.quantity)}</b></div>)}</div>
         <div className="fnb-cart-total"><span>Total</span><strong>{formatIDR(cartTotal)}</strong></div>
         <button className="btn btn-primary full" disabled={busy||cartItems.length===0||!isSupabaseConfigured} onClick={()=>void submitOrder()}>{busy?"Menyimpan…":"Buat pesanan"}</button>
@@ -116,7 +123,7 @@ export function FnbPageV2({role}:{role:Role}) {
       </tbody></table>
     </section>
     {productDrawer&&<div className="drawer-backdrop" onClick={()=>setProductDrawer(false)}><aside className="drawer" onClick={e=>e.stopPropagation()}><div className="modal-head"><div><span className="eyebrow">KATALOG F&B</span><h2>Tambah produk</h2></div><button className="icon-btn" onClick={()=>setProductDrawer(false)} aria-label="Tutup">×</button></div><form className="form-stack manage-form" onSubmit={submitProduct}><label><span>Kode produk</span><input required maxLength={24} value={productForm.code} onChange={e=>setProductForm(p=>({...p,code:e.target.value.toUpperCase()}))} placeholder="AIR01"/></label><label><span>Nama produk</span><input required maxLength={100} value={productForm.name} onChange={e=>setProductForm(p=>({...p,name:e.target.value}))}/></label><label><span>Kategori</span><select value={productForm.category} onChange={e=>setProductForm(p=>({...p,category:e.target.value}))}>{["Minuman","Makanan","Snack","Aksesoris","Lainnya"].map(x=><option key={x}>{x}</option>)}</select></label><label><span>Harga (Rp)</span><input type="number" min="0" required value={productForm.price} onChange={e=>setProductForm(p=>({...p,price:e.target.value}))}/></label><label><span>Stok</span><input type="number" min="0" value={productForm.stock} onChange={e=>setProductForm(p=>({...p,stock:e.target.value}))} placeholder="Kosongkan untuk tidak melacak stok"/></label>{error&&<p className="form-error">{error}</p>}<div className="drawer-actions"><button type="button" className="btn btn-secondary" onClick={()=>setProductDrawer(false)}>Batal</button><button className="btn btn-primary" disabled={busy}>{busy?"Menyimpan…":"Simpan produk"}</button></div></form></aside></div>}
-    {paymentOrder&&<div className="modal-backdrop" onClick={()=>setPaymentOrder(null)}><form className="modal fnb-payment-modal" onClick={e=>e.stopPropagation()} onSubmit={e=>void settle(e)}><div className="modal-head"><div><span className="eyebrow">{paymentOrder.order_no}</span><h2>Pembayaran F&B</h2></div><button type="button" className="icon-btn" onClick={()=>setPaymentOrder(null)}>×</button></div><div className="receipt-lines"><div><span>Total pesanan</span><b>{formatIDR(paymentOrder.total)}</b></div><div><span>Sudah dibayar</span><b>{formatIDR(paymentOrder.paid_amount)}</b></div><div className="grand"><span>Sisa tagihan</span><strong>{formatIDR(Math.max(0,paymentOrder.total-paymentOrder.paid_amount))}</strong></div></div><label><span>Metode</span><select value={method} onChange={e=>setMethod(e.target.value as PaymentMethod)}>{(["cash","transfer","qris","other"] as const).map(m=><option key={m} value={m}>{methodLabel(m)}</option>)}</select></label><label><span>Uang diterima (Rp)</span><input type="number" min="1" required value={received} onChange={e=>setReceived(e.target.value)}/></label><div className="change"><span>Perkiraan kembalian</span><b>{formatIDR(Math.max(0,Number(received||0)-(paymentOrder.total-paymentOrder.paid_amount)))}</b></div>{error&&<p className="form-error">{error}</p>}<div className="modal-actions"><button type="button" className="btn btn-secondary" onClick={()=>setPaymentOrder(null)}>Batal</button><button className="btn btn-primary" disabled={busy||Number(received)<=0}>{busy?"Menyimpan…":"Simpan pembayaran"}</button></div></form></div>}
+    {paymentOrder&&<div className="modal-backdrop" onClick={()=>setPaymentOrder(null)}><form className="modal fnb-payment-modal" onClick={e=>e.stopPropagation()} onSubmit={e=>void settle(e)}><div className="modal-head"><div><span className="eyebrow">{paymentOrder.order_no}</span><h2>Pembayaran F&B</h2></div><button type="button" className="icon-btn" onClick={()=>setPaymentOrder(null)}>×</button></div><div className="receipt-lines"><div><span>Total pesanan</span><b>{formatIDR(paymentOrder.total)}</b></div><div><span>Sudah dibayar</span><b>{formatIDR(paymentOrder.paid_amount)}</b></div><div className="grand"><span>Sisa tagihan</span><strong>{formatIDR(Math.max(0,paymentOrder.total-paymentOrder.paid_amount))}</strong></div></div><label><span>Metode</span><select value={method} onChange={e=>setMethod(e.target.value as PaymentMethod)}>{(["cash","transfer","qris","other"] as const).filter(m=>paymentMethods.includes(m)).map(m=><option key={m} value={m}>{methodLabel(m)}</option>)}</select></label><label><span>Uang diterima (Rp)</span><input type="number" min="1" required value={received} onChange={e=>setReceived(e.target.value)}/></label><div className="change"><span>Perkiraan kembalian</span><b>{formatIDR(Math.max(0,Number(received||0)-(paymentOrder.total-paymentOrder.paid_amount)))}</b></div>{error&&<p className="form-error">{error}</p>}<div className="modal-actions"><button type="button" className="btn btn-secondary" onClick={()=>setPaymentOrder(null)}>Batal</button><button className="btn btn-primary" disabled={busy||Number(received)<=0}>{busy?"Menyimpan…":"Simpan pembayaran"}</button></div></form></div>}
   </div>;
 }
 
