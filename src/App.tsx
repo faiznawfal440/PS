@@ -327,7 +327,7 @@ function ReceiptModal({receipt,close}:{receipt:{id:string;unit:string;customer:s
         <h4>RINCIAN PEMBAYARAN</h4>
         <div className="receipt-line"><span>Metode pembayaran</span><b>{methodName}</b></div>
         <div className="receipt-line"><span>Uang diterima</span><b>{formatIDR(receipt.received)}</b></div>
-        <div className={"receipt-line receipt-change"+(receipt.change>0?" is-change":"")}><span>Kembalian</span><b>{formatIDR(receipt.change)}</b></div>
+        <div className="receipt-line"><span>Terbayar</span><b>{formatIDR(receipt.paidAmount)}</b></div>{receipt.outstanding>0&&<div className="receipt-line receipt-change"><span>Sisa tagihan</span><b>{formatIDR(receipt.outstanding)}</b></div>}<div className={"receipt-line receipt-change"+(receipt.change>0?" is-change":"")}><span>Kembalian</span><b>{formatIDR(receipt.change)}</b></div>
       </div>
       <footer className="receipt-footer"><span className="receipt-footer-icon"><Icon name="console" size={20}/></span><b>Terima kasih sudah bermain!</b><p>Simpan struk ini sebagai bukti pembayaran.</p><small>Dicetak melalui RentalPS Manager</small></footer>
       <div className="receipt-actions"><Button variant="secondary" onClick={close}>Tutup</Button><Button icon="receipt" onClick={()=>window.print()}>Cetak struk</Button></div>
