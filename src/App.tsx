@@ -4,6 +4,7 @@ import { demoUnits, loadDashboardUnits, loadRatePlans, subscribeToRentalChanges,
 import { isSupabaseConfigured, supabase, supabaseConfigError } from "./lib/supabase";
 import { loadCurrentMemberInfo, requestPasswordReset, type CurrentMemberInfo } from "./lib/rentalApi";
 import { AuditPageV2, HistoryPageV2, ManagePageV2, ReportsPageV2, SettingsPageV2 } from "./OperationalPages";
+import { CashierShiftPage } from "./CashierShift";
 import { FnbPageV2, ReservationsPageV2 } from "./BusinessModules";
 
 const authParamsAtEntry = new URLSearchParams(window.location.hash.replace(/^#/, ""));
@@ -86,12 +87,12 @@ function Icon({ name, size = 20 }: { name: IconName; size?: number }) {
   return <svg className="icon" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{paths[name]}</svg>;
 }
 
-type Page = "Dashboard" | "Riwayat" | "Laporan" | "F&B" | "Reservasi" | "Unit" | "Tarif" | "Pengguna" | "Log Audit" | "Pengaturan";
+type Page = "Dashboard" | "Riwayat" | "Laporan" | "F&B" | "Reservasi" | "Shift Kasir" | "Unit" | "Tarif" | "Pengguna" | "Log Audit" | "Pengaturan";
 type Modal = "start" | "add" | "end" | "cancel" | null;
 
 const nav: { label: Page; icon: IconName }[] = [
   { label: "Dashboard", icon: "grid" }, { label: "Riwayat", icon: "history" },
-  { label: "Laporan", icon: "chart" }, { label: "F&B", icon: "wallet" }, { label: "Reservasi", icon: "history" }, { label: "Unit", icon: "console" },
+  { label: "Laporan", icon: "chart" }, { label: "F&B", icon: "wallet" }, { label: "Reservasi", icon: "history" }, { label: "Shift Kasir", icon: "wallet" }, { label: "Unit", icon: "console" },
   { label: "Tarif", icon: "tag" }, { label: "Pengguna", icon: "users" },
   { label: "Log Audit", icon: "shield" }, { label: "Pengaturan", icon: "settings" },
 ];
@@ -116,7 +117,7 @@ const units = [
 
 function Sidebar({ page, setPage, onLogout, role, email, businessName }: { page: Page; setPage: (p: Page) => void; onLogout: () => void; role: "owner"|"admin"|"operator"; email: string; businessName: string }) {
   const visibleNav=nav.filter(item=>{
-    if(role==="operator")return ["Dashboard","Riwayat","F&B","Reservasi"].includes(item.label);
+    if(role==="operator")return ["Dashboard","Riwayat","F&B","Reservasi","Shift Kasir"].includes(item.label);
     if(role==="admin")return item.label!=="Pengaturan";
     return true;
   });
@@ -598,11 +599,11 @@ export default function App() {
   };
   if (!loggedIn) return <div className={dark ? "app dark" : "app"}><Login onLogin={handleLogin} onForgotPassword={handleForgotPassword} dark={dark} setDark={setDark} /></div>;
   if (needsPassword) return <div className={dark ? "app dark" : "app"}><SetPasswordScreen dark={dark} onComplete={() => { setNeedsPassword(false); setPage("Dashboard"); }} /></div>;
-  const allowedPages:Page[]=effectiveRole==="owner"?nav.map(item=>item.label):effectiveRole==="admin"?nav.filter(item=>item.label!=="Pengaturan").map(item=>item.label):["Dashboard","Riwayat","F&B","Reservasi"];
+  const allowedPages:Page[]=effectiveRole==="owner"?nav.map(item=>item.label):effectiveRole==="admin"?nav.filter(item=>item.label!=="Pengaturan").map(item=>item.label):["Dashboard","Riwayat","F&B","Reservasi","Shift Kasir"];
   const onShowReceipt=async(sessionId:string)=>{
     try{setReceipt(await loadSessionReceipt(sessionId));setLoadError("");}
     catch(error){setLoadError(error instanceof Error?error.message:"Struk tidak dapat dimuat dari database.");}
   };
-  const content = !allowedPages.includes(page) ? <div className="page-content"><div className="app-alert error">Akses halaman ini memerlukan izin yang lebih tinggi.</div></div> : detail ? <DetailPage back={()=>setDetail(false)} /> : page === "Dashboard" ? <Dashboard units={liveUnits} open={openModal} onResume={onResume} onMaintenance={onMaintenance} mode={mode} /> : page === "Riwayat" ? <HistoryPageV2 onReceipt={onShowReceipt} paymentMethods={paymentMethods} /> : page === "Laporan" ? <ReportsPageV2 /> : page === "F&B" ? <FnbPageV2 role={effectiveRole} paymentMethods={paymentMethods} activeRentalUnitIds={liveUnits.filter(unit=>Boolean(unit.dbId&&unit.sessionId)).map(unit=>unit.dbId!)} onEndLinkedRental={(unitId)=>{const unit=liveUnits.find(item=>item.dbId===unitId&&item.sessionId);if(!unit){setLoadError("Sesi rental aktif tidak ditemukan untuk pesanan ini.");return;}setLoadError("");setSelectedUnitId(unit.id);setModal("end");}} /> : page === "Reservasi" ? <ReservationsPageV2 /> : page === "Log Audit" ? <AuditPageV2 /> : page === "Pengaturan" ? <SettingsPageV2 dark={dark} setDark={setDark} onSaved={(settings)=>{const methods=settings.settings?.payment?.methods;if(Array.isArray(methods)&&methods.length)setPaymentMethods(methods as PaymentMethod[]);setDark(settings.settings?.appearance?.theme==="dark");}} /> : <ManagePageV2 type={page as "Unit"|"Tarif"|"Pengguna"} />;
+  const content = !allowedPages.includes(page) ? <div className="page-content"><div className="app-alert error">Akses halaman ini memerlukan izin yang lebih tinggi.</div></div> : detail ? <DetailPage back={()=>setDetail(false)} /> : page === "Dashboard" ? <Dashboard units={liveUnits} open={openModal} onResume={onResume} onMaintenance={onMaintenance} mode={mode} /> : page === "Riwayat" ? <HistoryPageV2 onReceipt={onShowReceipt} paymentMethods={paymentMethods} /> : page === "Laporan" ? <ReportsPageV2 /> : page === "F&B" ? <FnbPageV2 role={effectiveRole} paymentMethods={paymentMethods} activeRentalUnitIds={liveUnits.filter(unit=>Boolean(unit.dbId&&unit.sessionId)).map(unit=>unit.dbId!)} onEndLinkedRental={(unitId)=>{const unit=liveUnits.find(item=>item.dbId===unitId&&item.sessionId);if(!unit){setLoadError("Sesi rental aktif tidak ditemukan untuk pesanan ini.");return;}setLoadError("");setSelectedUnitId(unit.id);setModal("end");}} /> : page === "Reservasi" ? <ReservationsPageV2 /> : page === "Shift Kasir" ? <CashierShiftPage /> : page === "Log Audit" ? <AuditPageV2 /> : page === "Pengaturan" ? <SettingsPageV2 dark={dark} setDark={setDark} onSaved={(settings)=>{const methods=settings.settings?.payment?.methods;if(Array.isArray(methods)&&methods.length)setPaymentMethods(methods as PaymentMethod[]);setDark(settings.settings?.appearance?.theme==="dark");}} /> : <ManagePageV2 type={page as "Unit"|"Tarif"|"Pengguna"} />;
   return <div className={dark ? "app dark" : "app"}><Sidebar page={page} setPage={(p)=>{if(allowedPages.includes(p)){setPage(p);setDetail(false);}else setLoadError("Role akun ini tidak memiliki akses ke halaman tersebut.");}} onLogout={async ()=>{if (supabase) await supabase.auth.signOut();setLoggedIn(false);setMemberInfo(null);}} role={effectiveRole} email={effectiveEmail} businessName={effectiveBusinessName} /><main className="main"><Topbar page={detail ? "Riwayat" : page} dark={dark} setDark={setDark} />{(loadError || notice) && <div className={loadError ? "app-alert error" : "app-alert"} role="status">{loadError || notice}<button onClick={()=>{setLoadError("");setNotice("")}} aria-label="Tutup notifikasi">×</button></div>}{content}</main><BottomNav page={page} setPage={(p)=>{setPage(p);setDetail(false)}} />{modal && selectedUnit && <ModalShell key={modal+"-"+(selectedUnit.sessionId??selectedUnit.id)} type={modal} unit={selectedUnit} ratePlans={ratePlans} paymentMethods={paymentMethods} close={()=>setModal(null)} onStart={onStart} onExtend={onExtend} onEnd={onEnd} onPause={onPause} />}{receipt && <ReceiptModal receipt={receipt} close={()=>setReceipt(null)} />}</div>;
 }
