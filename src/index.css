@@ -222,3 +222,8 @@ h1,h2,h3,p { margin: 0; }
 .table-status.paid{background:#e9f9ef;color:#167044}.table-status.partial{background:#fff6dd;color:#946200}.table-status.unpaid,.table-status.pending{background:#fef3c7;color:#92400e}.table-status.confirmed{background:#e7efff;color:#234eb7}.table-status.checked_in{background:#e6f7ff;color:#0369a1}.table-status.cancelled{background:#fef2f2;color:#b42318}.table-status.completed{background:#e8f7ed;color:#187245}
 @media(max-width:1100px){.fnb-layout,.reservation-layout{grid-template-columns:1fr}.fnb-cart{order:-1}.reservation-form{order:-1}}
 @media(max-width:640px){.fnb-product-grid{grid-template-columns:1fr}.fnb-products,.fnb-cart,.fnb-orders,.reservation-form,.reservation-list{padding:13px}.fnb-toolbar{align-items:center}.export-actions .btn{flex:1}}
+
+/* Ensure long CRUD drawers remain scrollable and their action buttons are reachable on shorter screens. */
+.drawer{overflow-y:auto;overscroll-behavior:contain}
+.drawer .form-stack{min-height:0;overflow-y:auto;padding-bottom:16px}
+.drawer-actions{position:sticky;bottom:0;background:var(--surface);padding:12px 0 calc(4px + env(safe-area-inset-bottom));z-index:2}
