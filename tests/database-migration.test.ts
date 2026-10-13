@@ -97,6 +97,10 @@ describe("Supabase migration safety", () => {
     expect(app).toContain("<HistoryPageV2 onReceipt={onShowReceipt} paymentMethods={paymentMethods} />");
     expect(app).toContain("STRUK RENTAL + F&B");
     expect(app).toContain("fnbSummary.outstanding");
+    expect(app).toContain("Jumlah yang harus dibayar sekarang");
+    expect(app).toContain("disabled={busy||fnbLoading||fnbLoadFailed}");
+    expect(app).toContain("onEndLinkedRental={(unitId)=>");
+    expect(fnb).toContain("Akhiri + bayar gabungan");
   });
 
   it("guards reservation unit ownership at both policy and trigger level", () => {
