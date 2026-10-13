@@ -27,7 +27,8 @@ export type ManagedRate = RatePlan & {
 };
 export type ManagedMember = {
   user_id: string; role: 'owner'|'admin'|'operator'; is_active: boolean;
-  email: string; display_name: string;
+  email: string; display_name: string; email_confirmed?: boolean;
+  invited_at?: string|null; last_sign_in_at?: string|null;
 };
 export type HistoryRecord = {
   id: string; customer: string; unit: string; console_type: string; room: string;
@@ -126,6 +127,11 @@ export async function loadManagedMembers():Promise<ManagedMember[]> {
 export async function inviteManagedMember(email:string,role:'admin'|'operator',displayName=''):Promise<void> {
   const {data,error}=await requireSupabase().functions.invoke('invite-member',{body:{action:'invite',email,role,display_name:displayName}});
   if(error) throw new Error('Gagal mengundang pengguna. Pastikan Edge Function invite-member sudah dideploy.');
+  if(data?.error) throw new Error(String(data.error));
+}
+export async function resendManagedInvite(userId:string):Promise<void> {
+  const {data,error}=await requireSupabase().functions.invoke('invite-member',{body:{action:'resend',user_id:userId}});
+  if(error) throw new Error('Undangan belum terkirim. Periksa koneksi dan konfigurasi Supabase Auth.');
   if(data?.error) throw new Error(String(data.error));
 }
 export async function updateManagedMember(input:{user_id:string;role?:'admin'|'operator';is_active?:boolean}):Promise<void> {
