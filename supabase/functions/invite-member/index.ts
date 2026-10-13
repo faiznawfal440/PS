@@ -45,9 +45,55 @@ Deno.serve(async (req: Request) => {
         email: m.business_member_profiles?.[0]?.email ?? authData.user?.email ?? "",
         display_name: m.business_member_profiles?.[0]?.display_name ?? "",
         email_confirmed: Boolean(authData.user?.email_confirmed_at),
+        invited_at: authData.user?.invited_at ?? null,
+        last_sign_in_at: authData.user?.last_sign_in_at ?? null,
       };
     }));
     return json({ members });
+  }
+  const appUrl = Deno.env.get("APP_SITE_URL") ?? "https://ps-nawfal5.vercel.app";
+  if (action === "resend") {
+    if (callerRole !== "owner") return json({ error: "Hanya Pemilik yang boleh mengirim ulang undangan." }, 403);
+    const targetId = String(body.user_id ?? "");
+    if (!targetId) return json({ error: "user_id wajib diisi." }, 400);
+    const { data: membership, error: membershipError } = await adminClient.from("business_members")
+      .select("business_id,user_id,role,is_active,business_member_profiles(email,display_name)")
+      .eq("business_id", businessId).eq("user_id", targetId).maybeSingle();
+    if (membershipError || !membership) return json({ error: "Anggota tidak ditemukan." }, 404);
+    const { data: targetData, error: targetError } = await adminClient.auth.admin.getUserById(targetId);
+    const target = targetData?.user;
+    if (targetError || !target?.email) return json({ error: "Akun undangan tidak ditemukan." }, 404);
+    if (target.email_confirmed_at || target.last_sign_in_at || !target.invited_at) {
+      return json({ error: "Akun ini sudah tidak berstatus undangan pending. Gunakan pemulihan password jika pengguna kehilangan akses." }, 409);
+    }
+    const profile = membership.business_member_profiles?.[0] ?? {};
+    const previousRole = membership.role as string;
+    const wasActive = Boolean(membership.is_active);
+    const email = target.email;
+    const { error: deleteError } = await adminClient.auth.admin.deleteUser(targetId);
+    if (deleteError) return json({ error: "Undangan lama tidak bisa diperbarui: " + deleteError.message }, 500);
+    const { data: reinvited, error: inviteError } = await adminClient.auth.admin.inviteUserByEmail(email, {
+      redirectTo: appUrl,
+      data: { full_name: profile.display_name ?? "" },
+    });
+    if (inviteError || !reinvited.user) {
+      return json({ error: "Akun pending lama sudah dibersihkan tetapi undangan baru gagal dikirim. Periksa Auth URL Configuration dan SMTP, lalu undang email ini kembali. " + (inviteError?.message ?? ""), recovery_needed: true }, 500);
+    }
+    const { error: membershipUpsertError } = await adminClient.from("business_members").upsert({
+      business_id: businessId, user_id: reinvited.user.id, role: previousRole, is_active: wasActive,
+    }, { onConflict: "business_id,user_id" });
+    if (membershipUpsertError) return json({ error: "Email terkirim tetapi role usaha gagal dipulihkan: " + membershipUpsertError.message }, 500);
+    const { error: profileUpsertError } = await adminClient.from("business_member_profiles").upsert({
+      business_id: businessId, user_id: reinvited.user.id, email, display_name: profile.display_name ?? "",
+    }, { onConflict: "business_id,user_id" });
+    if (profileUpsertError) return json({ error: "Undangan terkirim tetapi profil gagal dipulihkan: " + profileUpsertError.message }, 500);
+    await adminClient.from("audit_logs").insert({
+      business_id: businessId, user_id: userData.user.id, action: "member.invite_resent",
+      entity: "business_member", entity_id: reinvited.user.id,
+      before_data: { previous_user_id: targetId, email, role: previousRole },
+      after_data: { user_id: reinvited.user.id, email, role: previousRole },
+    });
+    return json({ ok: true, message: "Undangan baru dikirim ke " + email + ".", user_id: reinvited.user.id });
   }
   if (action === "invite") {
     const email = String(body.email ?? "").trim().toLowerCase();
@@ -55,7 +101,6 @@ Deno.serve(async (req: Request) => {
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return json({ error: "Alamat email tidak valid." }, 400);
     if (!["admin", "operator"].includes(role)) return json({ error: "Role undangan tidak valid." }, 400);
     if (role === "admin" && callerRole !== "owner") return json({ error: "Hanya Pemilik yang boleh mengundang Admin." }, 403);
-    const appUrl = Deno.env.get("APP_SITE_URL") ?? "https://ps-nawfal5.vercel.app";
     const { data: invited, error: inviteError } = await adminClient.auth.admin.inviteUserByEmail(email, { redirectTo: appUrl });
     if (inviteError || !invited.user) return json({ error: inviteError?.message ?? "Undangan gagal dikirim." }, 400);
     const { error: upsertError } = await adminClient.from("business_members")
