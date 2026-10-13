@@ -4,7 +4,7 @@ const url = import.meta.env.VITE_SUPABASE_URL?.trim() ?? '';
 const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY?.trim() ?? '';
 const hasRealValues = Boolean(url && anonKey && !url.includes('YOUR_PROJECT_REF') && !anonKey.includes('YOUR_SUPABASE'));
 
-let client: ReturnType<typeof createClient> | null = null;
+let client: any = null;
 let configError = '';
 
 if (hasRealValues) {
@@ -24,9 +24,9 @@ if (hasRealValues) {
 
 export const supabaseConfigError = configError;
 export const isSupabaseConfigured = Boolean(client);
-export const supabase = client;
+export const supabase: any = client;
 
-export function requireSupabase() {
+export function requireSupabase(): any {
   if (!supabase) {
     throw new Error(supabaseConfigError || 'Supabase belum dikonfigurasi. Isi VITE_SUPABASE_URL dan VITE_SUPABASE_ANON_KEY.');
   }
