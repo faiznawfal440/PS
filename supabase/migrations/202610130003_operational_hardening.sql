@@ -195,13 +195,21 @@ alter table public.fb_order_items enable row level security;
 alter table public.fb_payments enable row level security;
 alter table public.reservations enable row level security;
 
+drop policy if exists "members read F&B products" on public.fb_products;
 create policy "members read F&B products" on public.fb_products for select to authenticated using(public.is_business_member(business_id));
+drop policy if exists "admins manage F&B products" on public.fb_products;
 create policy "admins manage F&B products" on public.fb_products for all to authenticated using(public.is_business_member(business_id) and public.current_business_role(business_id) in ('owner','admin')) with check(public.is_business_member(business_id) and public.current_business_role(business_id) in ('owner','admin'));
+drop policy if exists "members read F&B orders" on public.fb_orders;
 create policy "members read F&B orders" on public.fb_orders for select to authenticated using(public.is_business_member(business_id));
+drop policy if exists "members read F&B items" on public.fb_order_items;
 create policy "members read F&B items" on public.fb_order_items for select to authenticated using(exists(select 1 from public.fb_orders o where o.id=order_id and public.is_business_member(o.business_id)));
+drop policy if exists "members read F&B payments" on public.fb_payments;
 create policy "members read F&B payments" on public.fb_payments for select to authenticated using(public.is_business_member(business_id));
+drop policy if exists "members read reservations" on public.reservations;
 create policy "members read reservations" on public.reservations for select to authenticated using(public.is_business_member(business_id));
+drop policy if exists "members create reservations" on public.reservations;
 create policy "members create reservations" on public.reservations for insert to authenticated with check(public.is_business_member(business_id) and created_by=auth.uid());
+drop policy if exists "members update reservations" on public.reservations;
 create policy "members update reservations" on public.reservations for update to authenticated using(public.is_business_member(business_id)) with check(public.is_business_member(business_id));
 
 -- Restrict direct writes: session/payment/order mutations must pass through audited RPCs.
