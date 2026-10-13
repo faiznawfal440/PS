@@ -56,7 +56,7 @@ npm audit
 
 Billing helpers have 9 automated tests covering exact payment, change, partial settlement, overtime grace/rounding and open billing. Database migration tests add static regression checks for guarded DDL, paused open billing, and tenant-safe reservation policies; they do not execute SQL against PostgreSQL. An actual end-to-end flow still requires logging in with a real owner account and verifying invitation email delivery and printer hardware.
 
-Until the UI includes a business switcher, an account with multiple active business memberships uses the oldest active membership as its deterministic business context. Dashboard/rate queries are scoped to that context instead of mixing records from multiple businesses.
+Until the UI includes a business switcher, an account with multiple active business memberships uses the oldest active membership as its deterministic business context. Dashboard/rate queries and realtime subscriptions are scoped to that context instead of mixing records or change notifications from multiple businesses.
 
 ## Known limitations
 
