@@ -458,18 +458,20 @@ export async function loadSessionReceipt(sessionId:string):Promise<SessionReceip
   // Checkout events retain tender/change from older split-payment logic that wrote only applied amounts to the ledger.
   const checkoutEvents=(eventResult.data??[]) as Array<{event_type:string;payload:Record<string,unknown>|null;created_at:string}>;
   const lastCheckoutEvent=checkoutEvents.at(-1);
-  const hasTenderEvents=checkoutEvents.some(event=>event.payload&&('received' in event.payload||'change' in event.payload));
-  const eventReceived=checkoutEvents.reduce((sum:number,event)=>sum+Number(event.payload?.received||0),0);
-  const eventChange=checkoutEvents.reduce((sum:number,event)=>sum+Number(event.payload?.change||0),0);
-  const laterPayments=lastCheckoutEvent
-    ?allPayments.filter((p:any)=>p.paid_at&&new Date(p.paid_at).getTime()>new Date(lastCheckoutEvent.created_at).getTime())
-    :allPayments;
-  const totalReceived=hasTenderEvents
-    ?eventReceived+laterPayments.reduce((sum:number,p:any)=>sum+Number(p.received_amount||0),0)
-    :allPayments.reduce((sum:number,p:any)=>sum+Number(p.received_amount||0),0);
-  const totalChange=hasTenderEvents
-    ?eventChange+laterPayments.reduce((sum:number,p:any)=>sum+Number(p.change_amount||0),0)
-    :allPayments.reduce((sum:number,p:any)=>sum+Number(p.change_amount||0),0);
+  const tenderEvents=checkoutEvents.filter(event=>event.payload&&('received' in event.payload||'change' in event.payload));
+  const tenderEventTimes=new Set(tenderEvents.map(event=>new Date(event.created_at).getTime()));
+  const eventReceived=tenderEvents.reduce((sum:number,event)=>sum+Number(event.payload?.received||0),0);
+  const eventChange=tenderEvents.reduce((sum:number,event)=>sum+Number(event.payload?.change||0),0);
+  // Payment rows stamped in the same transaction as a tender event are allocations, not a second receipt.
+  // Standalone F&B payments have no session_event and remain in the ledger fallback.
+  const ledgerWithoutTenderEvents=allPayments.filter((p:any)=>
+    !p.paid_at||!tenderEventTimes.has(new Date(p.paid_at).getTime()));
+  const totalReceived=tenderEvents.length
+    ?eventReceived+ledgerWithoutTenderEvents.reduce((sum:number,p:any)=>sum+Number(p.received_amount||0),0)
+    :allPayments.reduce((sum:any,p:any)=>sum+Number(p.received_amount||0),0);
+  const totalChange=tenderEvents.length
+    ?eventChange+ledgerWithoutTenderEvents.reduce((sum:number,p:any)=>sum+Number(p.change_amount||0),0)
+    :allPayments.reduce((sum:any,p:any)=>sum+Number(p.change_amount||0),0);
   const totalRental=Number(session.total??session.subtotal??0);
   const totalFnb=fnbOrders.reduce((sum,o)=>sum+o.total,0);
   const rentalPaid=rentalPayments.reduce((sum:number,p:any)=>sum+Number(p.amount||0),0);

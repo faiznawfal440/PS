@@ -112,8 +112,9 @@ describe("Supabase migration safety", () => {
     expect(sql).toContain("p_idempotency_key uuid default null");
     expect(sql).toContain("IDEMPOTENCY_KEY_REUSED");
     expect(sql).toContain("return existing_response");
-    expect(sql).toContain("case when tender_recorded then order_applied else received end");
-    expect(sql).toContain("received_amount >= amount");
+    expect(sql.split("values(s.business_id,s.id,p_payment_method,rental_applied,rental_applied,0,auth.uid());").length-1).toBe(2);
+    expect(sql.split("values(s.business_id,order_row.id,p_payment_method,order_applied,order_applied,0,auth.uid());").length-1).toBe(2);
+    expect(sql).toContain("amount,received_amount,change_amount,received_by");
     expect(sql).toContain("set search_path = ''");
     expect(sql).toContain("grant execute on function public.preview_rental_checkout(uuid) to authenticated");
     expect(sql).toContain("revoke all on table public.payment_idempotency_requests from public, anon, authenticated");
@@ -128,6 +129,8 @@ describe("Supabase migration safety", () => {
     expect(api).toContain("invoice_id:String(p.session_id)");
     expect(api).toContain("export async function loadStandaloneFnbOrders");
     expect(api).toContain("p_idempotency_key:input.idempotencyKey??null");
+    expect(api).toContain("const tenderEventTimes=new Set(tenderEvents.map(event=>new Date(event.created_at).getTime()))");
+    expect(api).toContain("ledgerWithoutTenderEvents");
     expect(ops).toContain("Bayar sisa");
     expect(ops).toContain("loadStandaloneFnbOrders");
     expect(ops).toContain("Piutang tersisa");

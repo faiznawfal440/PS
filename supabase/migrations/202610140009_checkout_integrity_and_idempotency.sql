@@ -172,7 +172,6 @@ declare
   existing_entity uuid;
   existing_fingerprint text;
   existing_response jsonb;
-  tender_recorded boolean := false;
 begin
   if auth.uid() is null then raise exception 'AUTH_REQUIRED'; end if;
   if p_payment_method not in ('cash','transfer','qris','other') then raise exception 'INVALID_PAYMENT_METHOD'; end if;
@@ -233,8 +232,7 @@ begin
 
   if rental_applied>0 then
     insert into public.payments(business_id,session_id,method,amount,received_amount,change_amount,received_by)
-    values(s.business_id,s.id,p_payment_method,rental_applied,received,change_due,auth.uid());
-    tender_recorded := true;
+    values(s.business_id,s.id,p_payment_method,rental_applied,rental_applied,0,auth.uid());
   end if;
 
   for order_row in
@@ -247,10 +245,7 @@ begin
     order_paid_after := order_paid+order_applied;
     if order_applied>0 then
       insert into public.fb_payments(business_id,order_id,method,amount,received_amount,change_amount,received_by)
-      values(s.business_id,order_row.id,p_payment_method,order_applied,
-        case when tender_recorded then order_applied else received end,
-        case when tender_recorded then 0 else change_due end,auth.uid());
-      tender_recorded := true;
+      values(s.business_id,order_row.id,p_payment_method,order_applied,order_applied,0,auth.uid());
       remaining_received := greatest(0,remaining_received-order_applied);
     end if;
     update public.fb_orders
@@ -336,7 +331,6 @@ declare
   order_paid numeric(12,0);
   order_applied numeric(12,0);
   order_paid_after numeric(12,0);
-  tender_recorded boolean := false;
   paid_after numeric(12,0);
   final_fnb_paid numeric(12,0);
   combined_status text;
@@ -399,8 +393,7 @@ begin
 
   if rental_applied>0 then
     insert into public.payments(business_id,session_id,method,amount,received_amount,change_amount,received_by)
-    values(s.business_id,s.id,p_payment_method,rental_applied,received,change_due,auth.uid());
-    tender_recorded := true;
+    values(s.business_id,s.id,p_payment_method,rental_applied,rental_applied,0,auth.uid());
   end if;
 
   for order_row in
@@ -412,10 +405,7 @@ begin
     order_paid_after := order_paid+order_applied;
     if order_applied>0 then
       insert into public.fb_payments(business_id,order_id,method,amount,received_amount,change_amount,received_by)
-      values(s.business_id,order_row.id,p_payment_method,order_applied,
-        case when tender_recorded then order_applied else received end,
-        case when tender_recorded then 0 else change_due end,auth.uid());
-      tender_recorded := true;
+      values(s.business_id,order_row.id,p_payment_method,order_applied,order_applied,0,auth.uid());
       remaining_received := greatest(0,remaining_received-order_applied);
     end if;
     update public.fb_orders
