@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import {
   deactivateManagedRate, deactivateManagedUnit, formatIDR, inviteManagedMember,
-  isSupabaseConfigured, loadHistorySessions, loadManagedMembers, loadManagedRates,
-  loadManagedUnits, saveManagedRate, saveManagedUnit, updateManagedMember,
-  type HistoryRecord, type ManagedMember, type ManagedRate, type ManagedUnit,
+  loadHistorySessions, loadManagedMembers, loadManagedRates, loadManagedUnits,
+  saveManagedRate, saveManagedUnit, updateManagedMember,
+  type HistoryRecord, type ManagedRate, type ManagedUnit,
 } from "./lib/rentalApi";
+import { isSupabaseConfigured } from "./lib/supabase";
 
 type ManagerPage = "Unit" | "Tarif" | "Pengguna";
 type Row = Record<string, any>;
