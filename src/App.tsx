@@ -2,7 +2,9 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 
 import { demoUnits, loadDashboardUnits, loadRatePlans, subscribeToRentalChanges, startSession, extendSession, pauseSession, resumeSession, endSession, setUnitMaintenance, formatIDR, formatTimer, type RatePlan, type UnitView } from "./lib/rentalApi";
 import { isSupabaseConfigured, supabase, supabaseConfigError } from "./lib/supabase";
+import { loadCurrentMemberInfo, requestPasswordReset, type CurrentMemberInfo } from "./lib/rentalApi";
 import { AuditPageV2, HistoryPageV2, ManagePageV2, ReportsPageV2, SettingsPageV2 } from "./OperationalPages";
+import { FnbPageV2, ReservationsPageV2 } from "./BusinessModules";
 
 const authParamsAtEntry = new URLSearchParams(window.location.hash.replace(/^#/, ""));
 const authTypeAtEntry = authParamsAtEntry.get("type") || new URLSearchParams(window.location.search).get("type");
@@ -87,7 +89,7 @@ type Modal = "start" | "add" | "end" | "cancel" | null;
 
 const nav: { label: Page; icon: IconName }[] = [
   { label: "Dashboard", icon: "grid" }, { label: "Riwayat", icon: "history" },
-  { label: "Laporan", icon: "chart" }, { label: "Unit", icon: "console" },
+  { label: "Laporan", icon: "chart" }, { label: "F&B", icon: "wallet" }, { label: "Reservasi", icon: "history" }, { label: "Unit", icon: "console" },
   { label: "Tarif", icon: "tag" }, { label: "Pengguna", icon: "users" },
   { label: "Log Audit", icon: "shield" }, { label: "Pengaturan", icon: "settings" },
 ];
@@ -110,11 +112,18 @@ const units = [
   { id: "PS 06", type: "PS4", room: "Reguler", status: "Maintenance" as const, time: "Tidak aktif", label: "Sejak 13:20", customer: "Stik sedang diperbaiki", start: "—", end: "—", cost: "—", progress: 0 },
 ];
 
-function Sidebar({ page, setPage, onLogout }: { page: Page; setPage: (p: Page) => void; onLogout: () => void }) {
+function Sidebar({ page, setPage, onLogout, role, email, businessName }: { page: Page; setPage: (p: Page) => void; onLogout: () => void; role: "owner"|"admin"|"operator"; email: string; businessName: string }) {
+  const visibleNav=nav.filter(item=>{
+    if(role==="operator")return ["Dashboard","Riwayat","F&B","Reservasi"].includes(item.label);
+    if(role==="admin")return item.label!=="Pengaturan";
+    return true;
+  });
+  const displayName=email.split("@")[0]||"Pengguna";
+  const roleLabel=role==="owner"?"Pemilik":role==="admin"?"Admin":"Operator";
   return <aside className="sidebar">
     <div className="brand"><span className="brand-mark"><Icon name="console" size={23} /></span><span>RentalPS <b>Manager</b></span></div>
-    <nav className="nav-list">{nav.map((item) => <button key={item.label} className={`nav-item ${page === item.label ? "active" : ""}`} onClick={() => setPage(item.label)}><Icon name={item.icon} /><span>{item.label}</span>{item.label === "Dashboard" && <i>6</i>}</button>)}</nav>
-    <div className="sidebar-profile"><span className="avatar">AR</span><span><b>Ardi Rahman</b><small>Operator</small></span><button aria-label="Keluar" onClick={onLogout}><Icon name="logout" size={18} /></button></div>
+    <nav className="nav-list">{visibleNav.map((item) => <button key={item.label} className={`nav-item ${page === item.label ? "active" : ""}`} onClick={() => setPage(item.label)}><Icon name={item.icon} /><span>{item.label}</span>{item.label === "Dashboard" && <i>6</i>}</button>)}</nav>
+    <div className="sidebar-profile"><span className="avatar">{displayName.slice(0,2).toUpperCase()}</span><span><b>{displayName}</b><small>{roleLabel} · {businessName}</small></span><button aria-label="Keluar" onClick={onLogout}><Icon name="logout" size={18} /></button></div>
   </aside>;
 }
 
@@ -274,16 +283,18 @@ function ModalShell({ type, unit, ratePlans, close, onStart, onExtend, onEnd, on
   </div></div>;
 }
 
-function Login({ onLogin, dark, setDark }: { onLogin: (email: string, password: string) => Promise<void>; dark: boolean; setDark:(v:boolean)=>void }) {
+function Login({ onLogin, onForgotPassword, dark, setDark }: { onLogin: (email: string, password: string) => Promise<void>; onForgotPassword:(email:string)=>Promise<void>; dark: boolean; setDark:(v:boolean)=>void }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState(authLinkErrorAtEntry);
   const [busy, setBusy] = useState(false);
+  const [forgotBusy,setForgotBusy]=useState(false);
+  const [message,setMessage]=useState("");
   const submit = async () => {
     setBusy(true); setError("");
     try { await onLogin(email, password); } catch (err) { setError(err instanceof Error ? err.message : "Login gagal. Periksa email dan kata sandi."); } finally { setBusy(false); }
   };
-  return <main className="login-page"><button className="icon-btn login-theme" onClick={() => setDark(!dark)} aria-label="Ganti tema"><Icon name={dark ? "sun" : "moon"} /></button><section className="login-side"><div className="brand light-brand"><span className="brand-mark"><Icon name="console" size={23} /></span><span>RentalPS <b>Manager</b></span></div><div className="login-message"><span className="live-pill"><i /> {isSupabaseConfigured ? "AUTENTIKASI SUPABASE" : "MODE DEMO"}</span><h1>Kelola rental.<br/>Lebih cepat, lebih rapi.</h1><p>Pantau semua unit, sesi, dan pendapatan dalam satu dashboard yang mudah digunakan.</p><div className="mini-dashboard"><div><i/><span/><span/></div><div><i/><span/><span/></div><div><i/><span/><span/></div></div></div><small>© 2026 RentalPS Manager</small></section><section className="login-form"><div className="login-card"><span className="mobile-logo"><Icon name="console" /> RentalPS Manager</span><h2>Selamat datang kembali</h2><p>{isSupabaseConfigured ? "Masuk menggunakan akun Supabase usaha Anda." : "Mode demo aktif. Klik masuk untuk mencoba dashboard."}</p><div className="form-stack"><label><span>Email</span><input type="email" autoComplete="username" value={email} onChange={e => setEmail(e.target.value)} placeholder={isSupabaseConfigured ? "nama@usaha.id" : "demo@rentalps.id"} /></label><label><span>Kata sandi</span><input type="password" autoComplete="current-password" value={password} onChange={e => setPassword(e.target.value)} placeholder={isSupabaseConfigured ? "Masukkan kata sandi" : "Tidak diperlukan untuk demo"} /></label><Button className="full" disabled={busy} onClick={() => void submit()}>{busy ? "Memeriksa…" : "Masuk ke dashboard"} <Icon name="arrow" size={18} /></Button>{error && <p className="form-error" role="alert">{error}</p>}</div><div className="demo-note"><Icon name="shield" size={18} /><span><b>{isSupabaseConfigured ? "Login aman" : "Akun demo tanpa backend"}</b><small>{isSupabaseConfigured ? "Kredensial diverifikasi oleh Supabase Auth." : "Data demo tidak dikirim ke server."}</small></span></div></div></section></main>;
+  return <main className="login-page"><button className="icon-btn login-theme" onClick={() => setDark(!dark)} aria-label="Ganti tema"><Icon name={dark ? "sun" : "moon"} /></button><section className="login-side"><div className="brand light-brand"><span className="brand-mark"><Icon name="console" size={23} /></span><span>RentalPS <b>Manager</b></span></div><div className="login-message"><span className="live-pill"><i /> {isSupabaseConfigured ? "AUTENTIKASI SUPABASE" : "MODE DEMO"}</span><h1>Kelola rental.<br/>Lebih cepat, lebih rapi.</h1><p>Pantau semua unit, sesi, dan pendapatan dalam satu dashboard yang mudah digunakan.</p><div className="mini-dashboard"><div><i/><span/><span/></div><div><i/><span/><span/></div><div><i/><span/><span/></div></div></div><small>© 2026 RentalPS Manager</small></section><section className="login-form"><div className="login-card"><span className="mobile-logo"><Icon name="console" /> RentalPS Manager</span><h2>Selamat datang kembali</h2><p>{isSupabaseConfigured ? "Masuk menggunakan akun Supabase usaha Anda." : "Mode demo aktif. Klik masuk untuk mencoba dashboard."}</p><div className="form-stack"><label><span>Email</span><input type="email" autoComplete="username" value={email} onChange={e => setEmail(e.target.value)} placeholder={isSupabaseConfigured ? "nama@usaha.id" : "demo@rentalps.id"} /></label><label><span>Kata sandi</span><input type="password" autoComplete="current-password" value={password} onChange={e => setPassword(e.target.value)} placeholder={isSupabaseConfigured ? "Masukkan kata sandi" : "Tidak diperlukan untuk demo"} /></label><Button className="full" disabled={busy} onClick={() => void submit()}>{busy ? "Memeriksa…" : "Masuk ke dashboard"} <Icon name="arrow" size={18} /></Button>{isSupabaseConfigured && <button className="forgot-password-link" type="button" disabled={forgotBusy} onClick={() => {setError("");setMessage("");setForgotBusy(true);void onForgotPassword(email).then(()=>setMessage("Jika email terdaftar, tautan pemulihan akan dikirim. Periksa kotak masuk dan folder Spam.")).catch(e=>setError(e instanceof Error?e.message:"Pemulihan password gagal.")).finally(()=>setForgotBusy(false));}}>{forgotBusy?"Mengirim tautan…":"Lupa password?"}</button>}{error && <p className="form-error" role="alert">{error}</p>}{message && <p className="login-success" role="status">{message}</p>}</div><div className="demo-note"><Icon name="shield" size={18} /><span><b>{isSupabaseConfigured ? "Login aman" : "Akun demo tanpa backend"}</b><small>{isSupabaseConfigured ? "Kredensial diverifikasi oleh Supabase Auth." : "Data demo tidak dikirim ke server."}</small></span></div></div></section></main>;
 }
 
 function BottomNav({ page, setPage }: { page: Page; setPage: (p:Page)=>void }) {
@@ -359,6 +370,7 @@ function SetPasswordScreen({dark,onComplete}:{dark:boolean;onComplete:()=>void})
 
 export default function App() {
   const [loggedIn, setLoggedIn] = useState(!isSupabaseConfigured);
+  const [memberInfo,setMemberInfo]=useState<CurrentMemberInfo|null>(null);
   const [needsPassword, setNeedsPassword] = useState(authTypeAtEntry === "invite" || authTypeAtEntry === "recovery");
   const [dark, setDark] = useState(false);
   const [page, setPage] = useState<Page>("Dashboard");
@@ -371,11 +383,23 @@ export default function App() {
   const [notice, setNotice] = useState("");
   const [receipt, setReceipt] = useState<{id:string;unit:string;customer:string;started:string;ended:string;total:number;method:string;received:number;change:number;paidAt:string}|null>(null);
   const mode = isSupabaseConfigured ? "supabase" : "demo";
+  useEffect(()=>{
+    if(!loggedIn||!isSupabaseConfigured)return;
+    let mounted=true;
+    loadCurrentMemberInfo().then(info=>{if(mounted){setMemberInfo(info);setLoadError("");}})
+      .catch(err=>{if(mounted){setMemberInfo(null);setLoadError(err instanceof Error?err.message:"Profil usaha dan role gagal dimuat.");}});
+    return()=>{mounted=false;};
+  },[loggedIn]);
+  const effectiveRole=mode==="demo"?"owner":memberInfo?.role??"operator";
+  const effectiveEmail=mode==="demo"?"demo@rentalps.id":memberInfo?.email??"";
+  const effectiveBusinessName=mode==="demo"?"RentalPS Demo":memberInfo?.businessName??"RentalPS";
+  const handleForgotPassword=async(email:string)=>{await requestPasswordReset(email);};
+
   useEffect(() => {
     if (!supabase) return;
     let mounted = true;
     supabase.auth.getSession().then(({data,error}) => { if (mounted) { if (error) setLoadError(error.message); setLoggedIn(Boolean(data.session)); if (data.session && (authTypeAtEntry === "invite" || authTypeAtEntry === "recovery")) setNeedsPassword(true); } });
-    const {data: listener} = supabase.auth.onAuthStateChange((_event,session) => { if (mounted) setLoggedIn(Boolean(session)); });
+    const {data: listener} = supabase.auth.onAuthStateChange((event,session) => { if (mounted) { setLoggedIn(Boolean(session)); if(!session)setMemberInfo(null); if(event==="PASSWORD_RECOVERY")setNeedsPassword(true); } });
     return () => { mounted = false; listener.subscription.unsubscribe(); };
   }, []);
   useEffect(() => {
@@ -472,8 +496,9 @@ export default function App() {
     if (isSupabaseConfigured) { if (!supabase) throw new Error("Supabase belum tersedia."); const {error}=await supabase.auth.signInWithPassword({email,password}); if (error) throw error; }
     else setLoggedIn(true);
   };
-  if (!loggedIn) return <div className={dark ? "app dark" : "app"}><Login onLogin={handleLogin} dark={dark} setDark={setDark} /></div>;
+  if (!loggedIn) return <div className={dark ? "app dark" : "app"}><Login onLogin={handleLogin} onForgotPassword={handleForgotPassword} dark={dark} setDark={setDark} /></div>;
   if (needsPassword) return <div className={dark ? "app dark" : "app"}><SetPasswordScreen dark={dark} onComplete={() => { setNeedsPassword(false); setPage("Dashboard"); }} /></div>;
-  const content = detail ? <DetailPage back={()=>setDetail(false)} /> : page === "Dashboard" ? <Dashboard units={liveUnits} open={openModal} onResume={onResume} onMaintenance={onMaintenance} mode={mode} /> : page === "Riwayat" ? <HistoryPageV2 /> : page === "Laporan" ? <ReportsPageV2 /> : page === "Log Audit" ? <AuditPageV2 /> : page === "Pengaturan" ? <SettingsPageV2 dark={dark} setDark={setDark} /> : <ManagePageV2 type={page as "Unit"|"Tarif"|"Pengguna"} />;
-  return <div className={dark ? "app dark" : "app"}><Sidebar page={page} setPage={(p)=>{setPage(p);setDetail(false)}} onLogout={async ()=>{if (supabase) await supabase.auth.signOut();setLoggedIn(false);}} /><main className="main"><Topbar page={detail ? "Riwayat" : page} dark={dark} setDark={setDark} />{(loadError || notice) && <div className={loadError ? "app-alert error" : "app-alert"} role="status">{loadError || notice}<button onClick={()=>{setLoadError("");setNotice("")}} aria-label="Tutup notifikasi">×</button></div>}{content}</main><BottomNav page={page} setPage={(p)=>{setPage(p);setDetail(false)}} />{modal && selectedUnit && <ModalShell type={modal} unit={selectedUnit} ratePlans={ratePlans} close={()=>setModal(null)} onStart={onStart} onExtend={onExtend} onEnd={onEnd} onPause={onPause} />}{receipt && <ReceiptModal receipt={receipt} close={()=>setReceipt(null)} />}</div>;
+  const allowedPages:Page[]=effectiveRole==="owner"?nav.map(item=>item.label):effectiveRole==="admin"?nav.filter(item=>item.label!=="Pengaturan").map(item=>item.label):["Dashboard","Riwayat","F&B","Reservasi"];
+  const content = !allowedPages.includes(page) ? <div className="page-content"><div className="app-alert error">Akses halaman ini memerlukan izin yang lebih tinggi.</div></div> : detail ? <DetailPage back={()=>setDetail(false)} /> : page === "Dashboard" ? <Dashboard units={liveUnits} open={openModal} onResume={onResume} onMaintenance={onMaintenance} mode={mode} /> : page === "Riwayat" ? <HistoryPageV2 /> : page === "Laporan" ? <ReportsPageV2 /> : page === "F&B" ? <FnbPageV2 role={effectiveRole} /> : page === "Reservasi" ? <ReservationsPageV2 /> : page === "Log Audit" ? <AuditPageV2 /> : page === "Pengaturan" ? <SettingsPageV2 dark={dark} setDark={setDark} /> : <ManagePageV2 type={page as "Unit"|"Tarif"|"Pengguna"} />;
+  return <div className={dark ? "app dark" : "app"}><Sidebar page={page} setPage={(p)=>{if(allowedPages.includes(p)){setPage(p);setDetail(false);}else setLoadError("Role akun ini tidak memiliki akses ke halaman tersebut.");}} onLogout={async ()=>{if (supabase) await supabase.auth.signOut();setLoggedIn(false);setMemberInfo(null);}} role={effectiveRole} email={effectiveEmail} businessName={effectiveBusinessName} /><main className="main"><Topbar page={detail ? "Riwayat" : page} dark={dark} setDark={setDark} />{(loadError || notice) && <div className={loadError ? "app-alert error" : "app-alert"} role="status">{loadError || notice}<button onClick={()=>{setLoadError("");setNotice("")}} aria-label="Tutup notifikasi">×</button></div>}{content}</main><BottomNav page={page} setPage={(p)=>{setPage(p);setDetail(false)}} />{modal && selectedUnit && <ModalShell type={modal} unit={selectedUnit} ratePlans={ratePlans} close={()=>setModal(null)} onStart={onStart} onExtend={onExtend} onEnd={onEnd} onPause={onPause} />}{receipt && <ReceiptModal receipt={receipt} close={()=>setReceipt(null)} />}</div>;
 }
