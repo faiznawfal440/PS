@@ -52,6 +52,15 @@ describe("Supabase migration safety", () => {
     );
   });
 
+  it("removes duplicate permissive policies and relocates btree_gist safely", () => {
+    const sql = readMigration("supabase/migrations/202610130007_rls_policy_cleanup.sql");
+    expect(sql).toContain('drop policy if exists "admins manage F&B products"');
+    expect(sql).toContain('drop policy if exists "admins manage rates"');
+    expect(sql).toContain('drop policy if exists "admins deactivate units"');
+    expect(sql).toContain("alter extension btree_gist set schema extensions");
+    expect(sql).toContain("if extension_schema='public'");
+  });
+
   it("revokes anonymous execution from SECURITY DEFINER RPCs and adds FK indexes", () => {
     const sql = readMigration("202610130006_database_hardening_idempotency.sql");
     expect(sql.match(/from anon, public/g)?.length).toBe(12);
