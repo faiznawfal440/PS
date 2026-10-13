@@ -2,9 +2,9 @@ import { useEffect, useMemo, useState, type FormEvent } from "react";
 import {
   deactivateManagedRate, deactivateManagedUnit, formatIDR, inviteManagedMember,
   loadAuditEntries, loadBusinessSettings, loadHistorySessions, loadManagedMembers, settleSessionPayment,
-  loadManagedRates, loadManagedUnits, resendManagedInvite, saveBusinessSettings, saveManagedRate,
+  loadManagedRates, loadManagedUnits, loadRevenuePayments, resendManagedInvite, saveBusinessSettings, saveManagedRate,
   saveManagedUnit, updateManagedMember, type AuditRecord, type BusinessSettings,
-  type HistoryRecord, type ManagedRate, type ManagedUnit,
+  type HistoryRecord, type ManagedRate, type ManagedUnit, type RevenuePayment,
 } from "./lib/rentalApi";
 import { isSupabaseConfigured } from "./lib/supabase";
 import { jsPDF } from "jspdf";
@@ -112,12 +112,14 @@ export function HistoryPageV2() {
 
 export function ReportsPageV2() {
   const [rows, setRows] = useState<HistoryRecord[]>([]);
+  const [payments,setPayments]=useState<RevenuePayment[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [range, setRange] = useState("30");
   useEffect(() => {
     let alive = true;
-    loadHistorySessions().then(data => { if (alive) setRows(data); })
+    Promise.all([loadHistorySessions(),loadRevenuePayments(new Date(Date.now()-100*86400000).toISOString())])
+      .then(([data,paymentRows]) => { if(alive){setRows(data);setPayments(paymentRows);} })
       .catch(e => { if (alive) setError(e instanceof Error ? e.message : "Laporan gagal dimuat."); })
       .finally(() => { if (alive) setLoading(false); });
     return () => { alive = false; };
@@ -125,33 +127,35 @@ export function ReportsPageV2() {
   const cutoff = Date.now() - Number(range) * 86400000;
   const scoped = rows.filter(r => new Date(r.started_at).getTime() >= cutoff);
   const completed = scoped.filter(r => r.status === "Selesai");
-  const revenue = completed.reduce((sum, r) => sum + r.paid_amount, 0);
-  const minutes = completed.reduce((sum, r) => sum + r.duration_minutes, 0);
-  const days = Array.from({ length: 7 }, (_, i) => {
-    const d = new Date(); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() - (6 - i));
-    const key = d.toISOString().slice(0, 10);
-    const matched = rows.filter(r => r.status === "Selesai" && new Date(r.started_at).toISOString().slice(0, 10) === key);
-    return { key, label: d.toLocaleDateString("id-ID", { weekday: "short" }), amount: matched.reduce((sum, r) => sum + r.paid_amount, 0), count: matched.length };
+  const scopedPayments=payments.filter(p=>new Date(p.paid_at).getTime()>=cutoff);
+  const revenue=scopedPayments.reduce((sum,p)=>sum+p.amount,0);
+  const paidOrderCount=new Set(scopedPayments.map(p=>p.order_id||p.id)).size;
+  const minutes=completed.reduce((sum,r)=>sum+r.duration_minutes,0);
+  const days=Array.from({length:7},(_,i)=>{
+    const d=new Date();d.setHours(0,0,0,0);d.setDate(d.getDate()-(6-i));
+    const key=d.toLocaleDateString("en-CA");
+    const sessionDay=rows.filter(r=>r.status==="Selesai"&&new Date(r.started_at).toLocaleDateString("en-CA")===key);
+    const paidDay=payments.filter(p=>new Date(p.paid_at).toLocaleDateString("en-CA")===key);
+    return {key,label:d.toLocaleDateString("id-ID",{weekday:"short"}),amount:paidDay.reduce((sum,p)=>sum+p.amount,0),count:new Set(paidDay.map(p=>p.order_id||p.id)).size,minutes:sessionDay.reduce((sum,r)=>sum+r.duration_minutes,0)};
   });
-  const max = Math.max(1, ...days.map(d => d.amount));
-  const exportRows = () => exportCsv("rentalps-laporan-pendapatan.csv",
-    ["Tanggal", "Sesi selesai", "Pembayaran diterima IDR", "Durasi menit"],
-    days.map(d => [d.key, d.count, d.amount, rows.filter(r => r.status === "Selesai" && new Date(r.started_at).toISOString().slice(0, 10) === d.key).reduce((sum, r) => sum + r.duration_minutes, 0)])
-  );
+  const max=Math.max(1,...days.map(d=>d.amount));
+  const reportHeaders=["Tanggal","Transaksi dibayar","Pembayaran diterima IDR","Durasi sesi rental (menit)"];
+  const reportData=days.map(d=>[d.key,d.count,d.amount,d.minutes]);
+  const exportRows=()=>exportCsv("rentalps-laporan-pendapatan.csv",reportHeaders,reportData);
   return <div className="page-content">
-    <div className="page-heading"><div><h2>Laporan</h2><p>Ringkasan transaksi selesai dalam periode terpilih.</p></div><div className="export-actions"><button className="btn btn-secondary" onClick={exportRows}>CSV</button><button className="btn btn-secondary" onClick={()=>exportExcel("rentalps-laporan.xls","Laporan pendapatan",["Tanggal","Sesi selesai","Pembayaran diterima IDR","Durasi menit"],days.map(d=>[d.key,d.count,d.amount,rows.filter(r=>r.status==="Selesai"&&new Date(r.started_at).toISOString().slice(0,10)===d.key).reduce((sum,r)=>sum+r.duration_minutes,0)]))}>Excel</button><button className="btn btn-secondary" onClick={()=>exportPdf("rentalps-laporan.pdf","Laporan pendapatan",["Tanggal","Sesi","Pendapatan","Durasi m"],days.map(d=>[d.key,d.count,d.amount,rows.filter(r=>r.status==="Selesai"&&new Date(r.started_at).toISOString().slice(0,10)===d.key).reduce((sum,r)=>sum+r.duration_minutes,0)]))}>PDF</button></div></div>
+    <div className="page-heading"><div><h2>Laporan</h2><p>Ringkasan transaksi selesai dalam periode terpilih.</p></div><div className="export-actions"><button className="btn btn-secondary" onClick={exportRows}>CSV</button><button className="btn btn-secondary" onClick={()=>exportExcel("rentalps-laporan.xls","Laporan pendapatan",reportHeaders,reportData)}>Excel</button><button className="btn btn-secondary" onClick={()=>exportPdf("rentalps-laporan.pdf","Laporan pendapatan",reportHeaders,reportData)}>PDF</button></div></div>
     {!isSupabaseConfigured && <div className="mode-notice">Mode demo: angka di bawah merupakan simulasi.</div>}
     {error && <div className="app-alert error" role="alert">{error}</div>}
     <div className="range-row"><div className="filter-pills">{[{ value: "7", label: "7 hari" }, { value: "30", label: "30 hari" }, { value: "90", label: "3 bulan" }].map(x => <button key={x.value} className={range === x.value ? "selected" : ""} onClick={() => setRange(x.value)}>{x.label}</button>)}</div><span className="report-range">{loading ? "Memuat…" : scoped.length + " sesi"}</span></div>
     <div className="summary-grid report">
-      <div className="summary-card"><span className="summary-icon indigo">Rp</span><div><small>Pendapatan sesi selesai</small><strong>{formatIDR(revenue)}</strong><span>{isSupabaseConfigured ? "Transaksi selesai" : "Data demo"}</span></div></div>
+      <div className="summary-card"><span className="summary-icon indigo">Rp</span><div><small>Pembayaran diterima (Rental + F&amp;B)</small><strong>{formatIDR(revenue)}</strong><span>{isSupabaseConfigured ? "Transaksi selesai" : "Data demo"}</span></div></div>
       <div className="summary-card"><span className="summary-icon blue">#</span><div><small>Sesi selesai</small><strong>{completed.length}</strong><span>Periode terpilih</span></div></div>
-      <div className="summary-card"><span className="summary-icon green">↗</span><div><small>Rata-rata transaksi</small><strong>{formatIDR(completed.length ? revenue / completed.length : 0)}</strong><span>Per sesi selesai</span></div></div>
+      <div className="summary-card"><span className="summary-icon green">↗</span><div><small>Rata-rata transaksi</small><strong>{formatIDR(paidOrderCount ? revenue / paidOrderCount : 0)}</strong><span>Rata-rata per transaksi dibayar</span></div></div>
       <div className="summary-card"><span className="summary-icon yellow">◷</span><div><small>Jam tersewa</small><strong>{(minutes / 60).toFixed(1)} jam</strong><span>Durasi sesi selesai</span></div></div>
     </div>
-    <div className="report-grid"><div className="panel chart-card wide"><div><h3>Pendapatan harian</h3><p>7 hari terakhir · sesi selesai</p></div><div className="bar-chart">{days.map(d => <div key={d.key}><span title={formatIDR(d.amount)} style={{ height: Math.max(3, d.amount / max * 100) + "%" }} /><small>{d.label}</small></div>)}</div></div>
+    <div className="report-grid"><div className="panel chart-card wide"><div><h3>Pendapatan harian</h3><p>7 hari terakhir · waktu pembayaran diterima, termasuk F&amp;B</p></div><div className="bar-chart">{days.map(d => <div key={d.key}><span title={formatIDR(d.amount)} style={{ height: Math.max(3, d.amount / max * 100) + "%" }} /><small>{d.label}</small></div>)}</div></div>
       <div className="panel chart-card"><div><h3>Ringkasan status</h3><p>Periode terpilih</p></div><div className="report-status-list">{["Selesai", "Aktif", "Dijeda", "Overtime", "Dibatalkan"].map(s => <div key={s}><span>{s}</span><b>{scoped.filter(r => r.status === s).length}</b></div>)}</div></div>
-      <div className="panel chart-card heat"><div><h3>Metode pembayaran</h3><p>Transaksi selesai</p></div><div className="report-status-list">{[{ key: "cash", name: "Tunai" }, { key: "transfer", name: "Transfer" }, { key: "qris", name: "QRIS" }, { key: "other", name: "Lainnya" }].map(m => <div key={m.key}><span>{m.name}</span><b>{completed.filter(r => r.payment_method === m.key).length}</b></div>)}</div></div>
+      <div className="panel chart-card heat"><div><h3>Metode pembayaran</h3><p>Transaksi selesai</p></div><div className="report-status-list">{[{ key: "cash", name: "Tunai" }, { key: "transfer", name: "Transfer" }, { key: "qris", name: "QRIS" }, { key: "other", name: "Lainnya" }].map(m => <div key={m.key}><span>{m.name}</span><b>{scopedPayments.filter(p=>p.method===m.key).length}</b></div>)}</div></div>
     </div>
   </div>;
 }
