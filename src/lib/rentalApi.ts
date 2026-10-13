@@ -326,3 +326,26 @@ export async function updateReservationStatus(id:string,status:ReservationRecord
   const {error}=await requireSupabase().from('reservations').update({status,updated_at:new Date().toISOString()}).eq('business_id',businessId).eq('id',id);
   if(error)throw error;
 }
+
+export type RevenuePayment={id:string;order_id:string|null;method:string;amount:number;paid_at:string;source:'rental'|'fnb'};
+export async function loadRevenuePayments(since:string):Promise<RevenuePayment[]>{
+  if(!isSupabaseConfigured){
+    return demoHistory.filter(r=>r.paid_amount>0&&new Date(r.ended_at??r.started_at)>=new Date(since)).map(r=>({
+      id:r.id,order_id:r.id,method:r.payment_method,amount:r.paid_amount,
+      paid_at:r.ended_at??r.started_at,source:'rental' as const
+    }));
+  }
+  const {businessId}=await currentBusinessContext();
+  const client=requireSupabase();
+  const [rentalResult,fnbResult]=await Promise.all([
+    client.from('payments').select('id,session_id,method,amount,paid_at').eq('business_id',businessId).gte('paid_at',since).order('paid_at',{ascending:true}).limit(5000),
+    client.from('fb_payments').select('id,order_id,method,amount,paid_at').eq('business_id',businessId).gte('paid_at',since).order('paid_at',{ascending:true}).limit(5000)
+  ]);
+  if(rentalResult.error)throw rentalResult.error;
+  if(fnbResult.error)throw fnbResult.error;
+  return [
+    ...(rentalResult.data??[]).map((p:any)=>({id:p.id,order_id:p.session_id??null,method:p.method,amount:Number(p.amount||0),paid_at:p.paid_at,source:'rental' as const})),
+    ...(fnbResult.data??[]).map((p:any)=>({id:p.id,order_id:p.order_id??null,method:p.method,amount:Number(p.amount||0),paid_at:p.paid_at,source:'fnb' as const}))
+  ].sort((a,b)=>new Date(a.paid_at).getTime()-new Date(b.paid_at).getTime());
+}
+
