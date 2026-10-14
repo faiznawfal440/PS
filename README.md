@@ -2,7 +2,7 @@
 
 <p align="center">
   <strong>Dashboard operasional rental PlayStation — dari sesi bermain hingga laporan kas.</strong><br />
-  Kelola unit, pelanggan, transaksi, F&amp;B, reservasi, dan shift kasir dalam satu aplikasi.
+  Kelola unit, pelanggan, transaksi, F&amp;B, reservasi, dan laporan dalam satu aplikasi.
 </p>
 
 <p align="center">
@@ -44,13 +44,6 @@ Aplikasi dapat dijalankan dalam **mode demo** atau dihubungkan ke **Supabase** u
 - Pesanan F&B baru dapat otomatis ditautkan ke sesi rental aktif untuk unit yang dipilih.
 - Pesanan yang terhubung ikut diperhitungkan dalam checkout dan struk rental.
 - Pesanan F&B mandiri tetap masuk laporan tanpa menghitung pesanan tertaut dua kali.
-
-### 💵 Shift kasir dan rekonsiliasi
-- Buka shift dengan mencatat saldo awal laci kas.
-- Pantau saldo tunai yang diharapkan berdasarkan pembayaran tunai rental dan F&B yang tercatat untuk akun kasir selama shift.
-- Tutup shift dengan memasukkan uang fisik; aplikasi menghitung selisih terhadap kas yang diharapkan.
-- Pembukaan dan penutupan shift dicatat pada audit trail.
-- Satu kasir hanya dapat memiliki satu shift terbuka per usaha pada satu waktu.
 
 ### 📅 Reservasi dan pelanggan
 - Catat reservasi beserta informasi pelanggan dan waktu.
@@ -129,9 +122,10 @@ Jalankan migrasi dalam urutan berikut pada proyek database baru setelah memeriks
 7. `supabase/migrations/202610130007_rls_policy_cleanup.sql`
 8. `supabase/migrations/202610140008_fnb_session_link_unified_checkout.sql`
 9. `supabase/migrations/202610140009_checkout_integrity_and_idempotency.sql`
-10. `supabase/migrations/202610140010_cashier_shift_reconciliation.sql`
+10. `supabase/migrations/202610140010_cashier_shift_reconciliation.sql` (migrasi historis)
+11. `supabase/migrations/202610140011_remove_cashier_shift_feature.sql`
 
-Migrasi 008 menambahkan pengaitan F&B dengan sesi dan checkout gabungan; migrasi 009 memperkuat pratinjau checkout, penyelesaian saldo, dan idempotensi pembayaran; migrasi 010 menambahkan pencatatan shift kasir dan rekonsiliasi kas.
+Migrasi 008 menambahkan pengaitan F&B dengan sesi dan checkout gabungan; migrasi 009 memperkuat pratinjau checkout, penyelesaian saldo, dan idempotensi pembayaran. Migrasi 010 dipertahankan sebagai bagian dari riwayat versi database; migrasi 011 menonaktifkan RPC dan akses fitur shift kasir tanpa menghapus tabel maupun data historis yang sudah ada.
 
 **Untuk database yang sudah berjalan:** periksa skema dan riwayat migrasi terlebih dahulu, lalu terapkan hanya migrasi yang belum dijalankan. Jangan mengulang migrasi baseline pada database berisi data tanpa memastikan dampaknya. Buat backup sebelum perubahan pada lingkungan produksi dan verifikasi hasil migrasi sesudahnya.
 
@@ -155,7 +149,6 @@ Tes unit/regresi yang tersedia mencakup helper penagihan, perhitungan pembayaran
 
 - Ekspor `.xls` menggunakan SpreadsheetML yang kompatibel dengan Excel; proyek menghindari dependensi `xlsx` yang belum diperbarui.
 - QRIS tersedia sebagai **metode pencatatan pembayaran**; integrasi gateway dan verifikasi pembayaran QRIS otomatis belum tersedia.
-- Rekonsiliasi shift didasarkan pada transaksi tunai yang tercatat. Catatan pengeluaran kas pada shift belum mengurangi saldo kas yang diharapkan secara otomatis.
 - Belum ada pemilih usaha (*business switcher*). Jika satu akun memiliki beberapa keanggotaan usaha aktif, aplikasi memilih keanggotaan aktif tertua sebagai konteks deterministik.
 - Pengujian end-to-end transaksi pada akun nyata dan verifikasi printer thermal fisik masih perlu dilakukan.
 

@@ -539,7 +539,3 @@ export async function loadRevenuePayments(since:string):Promise<RevenuePayment[]
 }
 
 
-export type CashierShift = {id:string;business_id:string;opened_by:string;opening_cash:number;expected_cash:number;closed_cash:number|null;cash_difference:number|null;opened_at:string;closed_at:string|null;status:"open"|"closed";notes:string|null};
-export async function loadCashierShift():Promise<CashierShift|null>{const {businessId}=await currentBusinessContext();const {data,error}=await requireSupabase().rpc("get_cashier_shift",{p_business_id:businessId});if(error)throw error;return data as CashierShift|null;}
-export async function openCashierShift(openingCash:number):Promise<CashierShift>{const {businessId}=await currentBusinessContext();const {data,error}=await requireSupabase().rpc("start_cashier_shift",{p_business_id:businessId,p_opening_cash:Math.max(0,Math.round(openingCash))});if(error)throw error;return data as CashierShift;}
-export async function closeCashierShift(input:{shiftId:string;closingCash:number;notes?:string}):Promise<CashierShift>{const {businessId}=await currentBusinessContext();const {data,error}=await requireSupabase().rpc("close_cashier_shift",{p_business_id:businessId,p_shift_id:input.shiftId,p_closing_cash:Math.max(0,Math.round(input.closingCash)),p_notes:input.notes?.trim()||null});if(error)throw error;return data as CashierShift;}
